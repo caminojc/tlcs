@@ -161,3 +161,62 @@ float tlcs_pitch_gain_dequantize(int index)
     if (index >= levels) index = levels - 1;
     return 1.2f * (float)index / (float)(levels - 1);
 }
+
+/* ================================================================== */
+/* FCB Gain — dB-stepped quantizer (SMPL-style)                        */
+/* ================================================================== */
+
+int tlcs_fcbgain_quantize(float gain_weighted, int voiced, float *out_gain)
+{
+    float abs_gain = fabsf(gain_weighted);
+    if (abs_gain < 1e-16f) abs_gain = 1e-16f;
+    float gain_db = 20.0f * log10f(abs_gain);
+
+    float min_db, step_db;
+    int steps;
+    if (voiced) {
+        min_db = TLCS_V_GAIN_MIN_DB;
+        step_db = TLCS_V_GAIN_STEP_DB;
+        steps = TLCS_V_GAIN_STEPS;
+    } else {
+        min_db = TLCS_UV_GAIN_MIN_DB;
+        step_db = TLCS_UV_GAIN_STEP_DB;
+        steps = TLCS_UV_GAIN_STEPS;
+    }
+
+    /* Clamp to range */
+    float max_db = min_db + (steps - 1) * step_db;
+    if (gain_db < min_db) gain_db = min_db;
+    if (gain_db > max_db) gain_db = max_db;
+
+    int idx = (int)roundf((gain_db - min_db) / step_db);
+    if (idx < 0) idx = 0;
+    if (idx >= steps) idx = steps - 1;
+
+    /* Reconstruct quantized gain (preserve sign) */
+    float q_db = min_db + (float)idx * step_db;
+    float q_gain = powf(10.0f, 0.05f * q_db);
+    if (gain_weighted < 0.0f) q_gain = -q_gain;
+
+    *out_gain = q_gain;
+    return idx;
+}
+
+float tlcs_fcbgain_dequantize(int index, int voiced)
+{
+    float min_db, step_db;
+    int steps;
+    if (voiced) {
+        min_db = TLCS_V_GAIN_MIN_DB;
+        step_db = TLCS_V_GAIN_STEP_DB;
+        steps = TLCS_V_GAIN_STEPS;
+    } else {
+        min_db = TLCS_UV_GAIN_MIN_DB;
+        step_db = TLCS_UV_GAIN_STEP_DB;
+        steps = TLCS_UV_GAIN_STEPS;
+    }
+    if (index < 0) index = 0;
+    if (index >= steps) index = steps - 1;
+    float q_db = min_db + (float)index * step_db;
+    return powf(10.0f, 0.05f * q_db);
+}

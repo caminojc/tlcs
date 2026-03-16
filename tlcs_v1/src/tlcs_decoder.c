@@ -164,9 +164,9 @@ int tlcs_decode(TlcsDecoder *dec, const uint8_t *buf, int buf_size,
         float frac = (float)sd->pitch_frac_idx / 3.0f;
         float pitch_lag = (float)int_lag + frac;
 
-        /* Dequantize gains */
-        float q_pg, q_cg;
-        tlcs_gain_vq_dequantize(sd->gain_index, &q_pg, &q_cg);
+        /* Dequantize gains — dB-stepped for FCB, scalar for pitch */
+        float q_pg = tlcs_pitch_gain_dequantize(sd->pitch_gain_idx);
+        float q_cg = tlcs_fcbgain_dequantize(sd->gain_index, 1 /*voiced*/);
 
         /* Build adaptive codebook excitation */
         float acb_exc[TLCS_SUBFRAME_SIZE];

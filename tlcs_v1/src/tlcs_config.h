@@ -48,10 +48,20 @@
 #define TLCS_ACB_BITS_PER_SUB   (TLCS_ACB_NUM_PULSES * (TLCS_ACB_POS_BITS + 1) + 1) /* 3×5+1=16 */
 /* The +1 is a VUV flag bit — free voicing info per subframe */
 
-/* ── Gain quantization ─────────────────────────────────── */
-#define TLCS_GAIN_CB_BITS       5       /* 32 entries (was 64) */
+/* ── Gain quantization — dB-stepped (SMPL-style) ─────── */
+#define TLCS_GAIN_BITS_PER_SUB  5       /* total gain bits per subframe */
+/* FCB gain: dB-stepped, 4 bits (pitched gain uses remaining 1 bit + pitch_gain_bits) */
+#define TLCS_V_GAIN_MIN_DB      -80.0f
+#define TLCS_V_GAIN_MAX_DB        0.0f
+#define TLCS_V_GAIN_STEPS         16    /* 4 bits */
+#define TLCS_V_GAIN_STEP_DB       ((TLCS_V_GAIN_MAX_DB - TLCS_V_GAIN_MIN_DB) / (TLCS_V_GAIN_STEPS - 1))
+#define TLCS_UV_GAIN_MIN_DB     -60.0f
+#define TLCS_UV_GAIN_MAX_DB       0.0f
+#define TLCS_UV_GAIN_STEPS        16    /* 4 bits */
+#define TLCS_UV_GAIN_STEP_DB      ((TLCS_UV_GAIN_MAX_DB - TLCS_UV_GAIN_MIN_DB) / (TLCS_UV_GAIN_STEPS - 1))
+/* Legacy — keep for backward compat */
+#define TLCS_GAIN_CB_BITS       5
 #define TLCS_GAIN_CB_SIZE       (1 << TLCS_GAIN_CB_BITS)
-#define TLCS_GAIN_BITS_PER_SUB  TLCS_GAIN_CB_BITS       /* 5 */
 
 /* ── Pre/de-emphasis ───────────────────────────────────── */
 #define TLCS_PREEMPH_COEFF      0.68f

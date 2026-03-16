@@ -366,62 +366,22 @@ int tlcs_encode(TlcsEncoder *enc, const int16_t *pcm,
             target2[i] = target[i] - pitch_gain * acb_filtered[i];
         }
 
-        /* ---- Algebraic codebook search (in weighted domain) ---- */
+        /* ---- Algebraic codebook search (weighted domain, Phi-based) ---- */
         int fcb_index;
-        float cb_gain_weighted;
+        float cb_gain;  /* weighted-domain gain from Phi search */
         float fcb_exc[TLCS_SUBFRAME_SIZE];
-        tlcs_acb_search(target2, h, Nsub, &fcb_index, &cb_gain_weighted, fcb_exc);
+        tlcs_acb_search(target2, h, Nsub, &fcb_index, &cb_gain, fcb_exc);
 
-        /* ---- Recompute BOTH gains in UNWEIGHTED domain ---- */
-        /* The search found optimal pulse positions and pitch lag in the weighted
-         * domain. Now compute the gains the decoder needs: in the 1/A(z) domain.
-         * Joint optimization: minimize ||target_uw - gp*H*acb - gc*H*fcb||^2 */
-        float cb_gain;
-        {
-            float h_uw[TLCS_SUBFRAME_SIZE];
-            tlcs_lpc_impulse_response(lpc_sub, P, Nsub, h_uw);
+        /* ---- Gain quantization — dB-stepped (stays in weighted domain) ---- */
+        /* Pitch gain: scalar quantize [0, 1.2] */
+        if (pitch_gain < 0.0f) pitch_gain = 0.0f;
+        if (pitch_gain > 1.2f) pitch_gain = 1.2f;
+        int pg_idx = tlcs_pitch_gain_quantize(pitch_gain);
+        float q_pg = tlcs_pitch_gain_dequantize(pg_idx);
 
-            /* Filter ACB and FCB through unweighted synthesis */
-            float acb_filt[TLCS_SUBFRAME_SIZE];
-            float fcb_filt[TLCS_SUBFRAME_SIZE];
-            tlcs_convolve(acb_exc, h_uw, Nsub, acb_filt);
-            tlcs_convolve(fcb_exc, h_uw, Nsub, fcb_filt);
-
-            /* Joint gain optimization (2×2 normal equations):
-             * [<a,a> <a,f>] [gp]   [<a,t>]
-             * [<f,a> <f,f>] [gc] = [<f,t>]
-             * where a=acb_filt, f=fcb_filt, t=target_unweighted */
-            float aa = 0, af = 0, ff = 0, at = 0, ft = 0;
-            for (int i = 0; i < Nsub; i++) {
-                float a = acb_filt[i], f = fcb_filt[i], t = target_unweighted[i];
-                aa += a * a;
-                af += a * f;
-                ff += f * f;
-                at += a * t;
-                ft += f * t;
-            }
-
-            /* Solve 2×2 system */
-            float det = aa * ff - af * af;
-            if (fabsf(det) > 1e-10f) {
-                pitch_gain = (ff * at - af * ft) / det;
-                cb_gain = (aa * ft - af * at) / det;
-            } else {
-                /* Degenerate — fall back to independent gains */
-                pitch_gain = (aa > 1e-10f) ? (at / aa) : 0.0f;
-                cb_gain = (ff > 1e-10f) ? (ft / ff) : 0.0f;
-            }
-
-            /* Clamp */
-            if (pitch_gain < 0.0f) pitch_gain = 0.0f;
-            if (pitch_gain > 1.2f) pitch_gain = 1.2f;
-            if (cb_gain < -2.0f) cb_gain = -2.0f;
-            if (cb_gain > 2.0f) cb_gain = 2.0f;
-        }
-
-        /* ---- Gain quantization ---- */
-        float q_pg, q_cg;
-        int gain_idx = tlcs_gain_vq_quantize(pitch_gain, cb_gain, &q_pg, &q_cg);
+        /* FCB gain: dB-stepped quantize (voiced assumption for now) */
+        float q_cg;
+        int fcb_gain_idx = tlcs_fcbgain_quantize(cb_gain, 1 /*voiced*/, &q_cg);
 
         /* Gains quantized */
 
@@ -450,15 +410,13 @@ int tlcs_encode(TlcsEncoder *enc, const int16_t *pcm,
 
         int frac_index = (int)roundf(frac_part * 3.0f) % 3;
 
-        int pg_idx = tlcs_pitch_gain_quantize(q_pg);
-
         /* Pack subframe data */
         TlcsSubframeData *sd = &fd.sf[sf];
         sd->pitch_lag_idx  = lag_index;
         sd->pitch_frac_idx = frac_index;
         sd->pitch_gain_idx = pg_idx;
         sd->fcb_index      = fcb_index;
-        sd->gain_index     = gain_idx;
+        sd->gain_index     = fcb_gain_idx;
 
         /* Update OL pitch for next subframe */
         ol_pitch = int_lag;
