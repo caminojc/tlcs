@@ -15,7 +15,7 @@
 #define TLCS_BYTES_PER_FRAME    (TLCS_BITS_PER_FRAME / 8)                 /* 20 */
 
 /* ── LPC ───────────────────────────────────────────────── */
-#define TLCS_LPC_ORDER          16
+#define TLCS_LPC_ORDER          12
 #define TLCS_LPC_BWE            0.9999f   /* CMA-ES */
 
 /* ── LSP quantization ──────────────────────────────────── */
