@@ -1,5 +1,5 @@
-/* TLCS v1 configuration — all tunable constants.
- * Every float here is an optimizer target. DO NOT HAND TUNE. */
+/* TLCS v1 configuration — CMA-ES optimized defaults from SMPL research.
+ * Every float is an optimizer target. DO NOT HAND TUNE. */
 #ifndef TLCS_CONFIG_H
 #define TLCS_CONFIG_H
 
@@ -26,31 +26,32 @@
 
 /* ── Pitch ─────────────────────────────────────────────── */
 #define TLCS_PITCH_MIN_LAG      32      /* ~500 Hz @ 16 kHz */
-#define TLCS_PITCH_MAX_LAG      231     /* ~69 Hz @ 16 kHz */
-#define TLCS_PITCH_LAG_RANGE    (TLCS_PITCH_MAX_LAG - TLCS_PITCH_MIN_LAG + 1) /* 200 */
-#define TLCS_PITCH_LAG_BITS     8       /* ceil(log2(200)) */
-#define TLCS_PITCH_FRAC_BITS    2       /* 1/3 fractional */
-#define TLCS_PITCH_GAIN_BITS    4
-#define TLCS_PITCH_BITS_PER_SUB (TLCS_PITCH_LAG_BITS + TLCS_PITCH_FRAC_BITS + TLCS_PITCH_GAIN_BITS) /* 14 */
+#define TLCS_PITCH_MAX_LAG      159     /* ~100 Hz — 7-bit range = 128 lags */
+#define TLCS_PITCH_LAG_RANGE    (TLCS_PITCH_MAX_LAG - TLCS_PITCH_MIN_LAG + 1) /* 128 */
+#define TLCS_PITCH_LAG_BITS     7       /* ceil(log2(128)) */
+#define TLCS_PITCH_FRAC_BITS    1       /* half-sample fractional */
+#define TLCS_PITCH_GAIN_BITS    3       /* 8 levels, 0 to 1.2 */
+#define TLCS_PITCH_BITS_PER_SUB (TLCS_PITCH_LAG_BITS + TLCS_PITCH_FRAC_BITS + TLCS_PITCH_GAIN_BITS) /* 11 */
 
-#define TLCS_PITCH_DELTAWGHT    0.1439f   /* CMA-ES: fast tracking */
-#define TLCS_PITCH_PREVWGHT     0.7981f   /* CMA-ES: strong smoothing */
+#define TLCS_PITCH_DELTAWGHT    0.1439f   /* CMA-ES */
+#define TLCS_PITCH_PREVWGHT     0.7981f   /* CMA-ES */
 
 /* ── VUV decision ──────────────────────────────────────── */
 #define TLCS_VUV_BIAS           -0.1038f  /* CMA-ES */
 #define TLCS_VUV_HYST           0.05f
 
 /* ── Algebraic codebook ────────────────────────────────── */
-#define TLCS_ACB_NUM_PULSES     2
-#define TLCS_ACB_NUM_TRACKS     4
-#define TLCS_ACB_POS_PER_TRACK  (TLCS_SUBFRAME_SIZE / TLCS_ACB_NUM_TRACKS) /* 20 */
-#define TLCS_ACB_POS_BITS       5       /* ceil(log2(20)) */
-#define TLCS_ACB_BITS_PER_SUB   (TLCS_ACB_NUM_PULSES * (TLCS_ACB_POS_BITS + 1)) /* 12 */
+#define TLCS_ACB_NUM_PULSES     3       /* 3 pulses (was 2) */
+#define TLCS_ACB_NUM_TRACKS     5       /* 5 tracks: 80/5=16 positions, 4 bits */
+#define TLCS_ACB_POS_PER_TRACK  (TLCS_SUBFRAME_SIZE / TLCS_ACB_NUM_TRACKS) /* 16 */
+#define TLCS_ACB_POS_BITS       4       /* ceil(log2(16)) */
+#define TLCS_ACB_BITS_PER_SUB   (TLCS_ACB_NUM_PULSES * (TLCS_ACB_POS_BITS + 1) + 1) /* 3×5+1=16 */
+/* The +1 is a VUV flag bit — free voicing info per subframe */
 
 /* ── Gain quantization ─────────────────────────────────── */
-#define TLCS_GAIN_CB_BITS       6
-#define TLCS_GAIN_CB_SIZE       (1 << TLCS_GAIN_CB_BITS) /* 64 */
-#define TLCS_GAIN_BITS_PER_SUB  TLCS_GAIN_CB_BITS       /* 6 */
+#define TLCS_GAIN_CB_BITS       5       /* 32 entries (was 64) */
+#define TLCS_GAIN_CB_SIZE       (1 << TLCS_GAIN_CB_BITS)
+#define TLCS_GAIN_BITS_PER_SUB  TLCS_GAIN_CB_BITS       /* 5 */
 
 /* ── Pre/de-emphasis ───────────────────────────────────── */
 #define TLCS_PREEMPH_COEFF      0.68f
@@ -84,10 +85,10 @@
 #define TLCS_RATE_CONT_GAIN     0.05f
 
 /* ── Bit budget verification ───────────────────────────── */
-/* Per subframe: pitch(14) + fcb(12) + gain(6) = 32 bits
- * Per frame:    lsp(32) + 4*32 = 160 bits = 20 bytes     */
+/* Per subframe: pitch(11) + fcb(16) + gain(5) = 32 bits
+ * Per frame:    lsp(32) + 4×32 = 160 bits = 20 bytes     */
 #if (TLCS_LSP_TOTAL_BITS + TLCS_NUM_SUBFRAMES * (TLCS_PITCH_BITS_PER_SUB + TLCS_ACB_BITS_PER_SUB + TLCS_GAIN_BITS_PER_SUB)) != TLCS_BITS_PER_FRAME
-#error "Bit budget mismatch! Check config defines."
+#error "Bit budget mismatch!"
 #endif
 
 #endif /* TLCS_CONFIG_H */
