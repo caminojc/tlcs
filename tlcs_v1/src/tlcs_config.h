@@ -89,7 +89,7 @@
 #define TLCS_PERC_GAMMA2    0.60f
 
 /* ── Pitch sharpening ──────────────────────────────────── */
-#define TLCS_PITCH_SHARPENING_COEF   0.0f
+#define TLCS_PITCH_SHARPENING_COEF   0.95f
 
 /* ── Shaped noise fill (decoder) ──────────────────────── */
 #define TLCS_NOISE_V_GAIN    0.0f
