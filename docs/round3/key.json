@@ -1,0 +1,16 @@
+{
+  "order": [
+    2,
+    3,
+    4,
+    1,
+    0
+  ],
+  "labels": [
+    "Bare (no ALFE, no PF)",
+    "ALFE 1.7 only",
+    "Light PF only",
+    "High noise fill",
+    "Low noise fill"
+  ]
+}

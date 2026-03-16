@@ -1,0 +1,128 @@
+[
+  {
+    "file": "237-134500-0022.wav",
+    "codec": "tlcs5k",
+    "label": "TLCS 5k",
+    "audio": "audio/tlcs5k_237-134500-0022.wav",
+    "blind_id": 0
+  },
+  {
+    "file": "2961-961-0009.wav",
+    "codec": "tlcs5k",
+    "label": "TLCS 5k",
+    "audio": "audio/tlcs5k_2961-961-0009.wav",
+    "blind_id": 1
+  },
+  {
+    "file": "2961-961-0009.wav",
+    "codec": "smpl8k",
+    "label": "SMPL 8k",
+    "audio": "audio/smpl8k_2961-961-0009.wav",
+    "blind_id": 2
+  },
+  {
+    "file": "908-157963-0014.wav",
+    "codec": "tlcs5k",
+    "label": "TLCS 5k",
+    "audio": "audio/tlcs5k_908-157963-0014.wav",
+    "blind_id": 3
+  },
+  {
+    "file": "2961-961-0009.wav",
+    "codec": "orig",
+    "label": "Original",
+    "audio": "audio/orig_2961-961-0009.wav",
+    "blind_id": 4
+  },
+  {
+    "file": "237-134500-0022.wav",
+    "codec": "tlcs96k",
+    "label": "TLCS 9.6k",
+    "audio": "audio/tlcs96k_237-134500-0022.wav",
+    "blind_id": 5
+  },
+  {
+    "file": "908-157963-0014.wav",
+    "codec": "evs96k",
+    "label": "EVS 9.6k",
+    "audio": "audio/evs96k_908-157963-0014.wav",
+    "blind_id": 6
+  },
+  {
+    "file": "908-157963-0014.wav",
+    "codec": "tlcs96k",
+    "label": "TLCS 9.6k",
+    "audio": "audio/tlcs96k_908-157963-0014.wav",
+    "blind_id": 7
+  },
+  {
+    "file": "2961-961-0009.wav",
+    "codec": "evs96k",
+    "label": "EVS 9.6k",
+    "audio": "audio/evs96k_2961-961-0009.wav",
+    "blind_id": 8
+  },
+  {
+    "file": "237-134500-0022.wav",
+    "codec": "orig",
+    "label": "Original",
+    "audio": "audio/orig_237-134500-0022.wav",
+    "blind_id": 9
+  },
+  {
+    "file": "2961-961-0009.wav",
+    "codec": "tlcs96k",
+    "label": "TLCS 9.6k",
+    "audio": "audio/tlcs96k_2961-961-0009.wav",
+    "blind_id": 10
+  },
+  {
+    "file": "908-157963-0014.wav",
+    "codec": "smpl5k",
+    "label": "SMPL 5k",
+    "audio": "audio/smpl5k_908-157963-0014.wav",
+    "blind_id": 11
+  },
+  {
+    "file": "2961-961-0009.wav",
+    "codec": "smpl5k",
+    "label": "SMPL 5k",
+    "audio": "audio/smpl5k_2961-961-0009.wav",
+    "blind_id": 12
+  },
+  {
+    "file": "908-157963-0014.wav",
+    "codec": "smpl8k",
+    "label": "SMPL 8k",
+    "audio": "audio/smpl8k_908-157963-0014.wav",
+    "blind_id": 13
+  },
+  {
+    "file": "237-134500-0022.wav",
+    "codec": "evs96k",
+    "label": "EVS 9.6k",
+    "audio": "audio/evs96k_237-134500-0022.wav",
+    "blind_id": 14
+  },
+  {
+    "file": "908-157963-0014.wav",
+    "codec": "orig",
+    "label": "Original",
+    "audio": "audio/orig_908-157963-0014.wav",
+    "blind_id": 15
+  },
+  {
+    "file": "237-134500-0022.wav",
+    "codec": "smpl8k",
+    "label": "SMPL 8k",
+    "audio": "audio/smpl8k_237-134500-0022.wav",
+    "blind_id": 16
+  },
+  {
+    "file": "237-134500-0022.wav",
+    "codec": "smpl5k",
+    "label": "SMPL 5k",
+    "audio": "audio/smpl5k_237-134500-0022.wav",
+    "blind_id": 17
+  }
+]
