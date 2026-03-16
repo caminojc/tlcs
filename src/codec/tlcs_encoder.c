@@ -244,7 +244,7 @@ static void celp_encode_core(tlcs_encoder *enc,
     float b_perc[TLCS_MAX_SUBFR_SIZE];
     int32_t perc_order = order;  /* match LPC order for memory consistency */
     int use_perc = 0;
-    if (0) {
+    {
         int32_t rc = tlcs_compute_perceptual_filter(
             enc->speech_buf + TLCS_MAX_PITCH_LAG, n,
             (float)(enc->cfg.sample_rate), b_perc, perc_order);

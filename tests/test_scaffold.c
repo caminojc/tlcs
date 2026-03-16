@@ -778,10 +778,10 @@ TEST(test_config_init_lowrate)
     ASSERT(tlcs_config_init(&cfg, 16000, 9600) == TLCS_OK);
     ASSERT(cfg.sample_rate == 16000);
     ASSERT(cfg.frame_size  == 320);
-    ASSERT(cfg.subfr_size  == 80);
-    ASSERT(cfg.n_subfr     == 4);
+    ASSERT(cfg.subfr_size  == 160);
+    ASSERT(cfg.n_subfr     == 2);
     ASSERT(cfg.lpc_order   == 16);
-    ASSERT(cfg.num_pulses  == 5);
+    ASSERT(cfg.num_pulses  == 12);
     ASSERT(cfg.lsf_bits    == 7);
     ASSERT(cfg.fcb_gain_bits == 5);
     ASSERT(cfg.use_ec      == 0);

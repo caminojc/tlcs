@@ -24,10 +24,10 @@ tlcs_status tlcs_config_init(tlcs_config *cfg, int32_t sample_rate, int32_t bitr
         cfg->use_ec            = 0;
         cfg->use_lsf_vq       = 1;
     } else if (bitrate < TLCS_LR_BITRATE_THRESHOLD) {
-        cfg->n_subfr           = 4;
+        cfg->n_subfr           = 2;
         cfg->subfr_size        = cfg->frame_size / cfg->n_subfr;
         cfg->lpc_order         = TLCS_LPC_ORDER_WB;
-        cfg->num_pulses        = 5;
+        cfg->num_pulses        = 12;
         cfg->lsf_bits          = 7;
         cfg->fcb_gain_bits     = 5;
         cfg->pitch_delta_bits  = 6;

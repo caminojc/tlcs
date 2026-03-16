@@ -129,7 +129,7 @@ function submitRatings() {
 }
 
 // Clear old ratings when pairs change (version key)
-const PAIRS_VERSION = 'v3';  // bump this when re-randomizing
+const PAIRS_VERSION = 'v4';  // bump this when re-randomizing
 const savedVersion = localStorage.getItem('tlc_ab_version');
 if (savedVersion !== PAIRS_VERSION) {
     localStorage.removeItem('tlc_ab_ratings');

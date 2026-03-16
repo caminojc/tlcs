@@ -204,6 +204,13 @@ typedef struct {
     float    hb_synth_mem[8];
     uint32_t hb_rng_state;
 
+    /* HP post-filter state (50 Hz Butterworth HP) */
+    float    hp50_x1, hp50_x2;   /* input delay line */
+    float    hp50_y1, hp50_y2;   /* output delay line */
+
+    /* HF shelf emphasis state (3 kHz presence boost) */
+    float    shelf_prev_x;
+
     /* TCX mode state */
     int32_t  prev_codec_mode;                       /* previous frame's codec mode */
     float    mdct_overlap[TLCS_MAX_FRAME_SIZE];     /* IMDCT overlap-add buffer */
