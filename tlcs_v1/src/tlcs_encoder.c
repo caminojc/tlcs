@@ -364,16 +364,49 @@ int tlcs_encode(TlcsEncoder *enc, const int16_t *pcm,
         tlcs_acb_search(target2, h, Nsub,
                         &fcb_index_lo, &fcb_index_hi, &cb_gain, fcb_exc);
 
-        /* ---- Gain quantization — dB-stepped (stays in weighted domain) ---- */
-        /* Pitch gain: scalar quantize [0, 1.2] */
-        if (pitch_gain < 0.0f) pitch_gain = 0.0f;
-        if (pitch_gain > 1.2f) pitch_gain = 1.2f;
-        int pg_idx = tlcs_pitch_gain_quantize(pitch_gain);
-        float q_pg = tlcs_pitch_gain_dequantize(pg_idx);
+        /* ---- Joint gain optimization (MLOW-style) ---- */
+        /* Try all combinations of quantized pitch gain × FCB gain dB steps.
+         * Pick the pair that minimizes weighted error:
+         *   err = ||target - gp*H*acb - gc*H*fcb||^2
+         * This is a brute-force search over the quantized gain space. */
+        float *fcb_filtered = (float *)malloc((size_t)Nsub * sizeof(float));
+        tlcs_convolve(fcb_exc, h, Nsub, fcb_filtered);
 
-        /* FCB gain: dB-stepped quantize (voiced assumption for now) */
-        float q_cg;
-        int fcb_gain_idx = tlcs_fcbgain_quantize(cb_gain, 1 /*voiced*/, &q_cg);
+        /* Precompute inner products for fast gain search */
+        float aa = 0, af = 0, ff = 0, at = 0, ft = 0;
+        for (int i = 0; i < Nsub; i++) {
+            float a = acb_filtered[i], f = fcb_filtered[i], t = target[i];
+            aa += a * a;
+            af += a * f;
+            ff += f * f;
+            at += a * t;
+            ft += f * t;
+        }
+
+        int pg_idx = 0;
+        int fcb_gain_idx = 0;
+        float q_pg = 0.0f, q_cg = 0.0f;
+        float best_err = 1e30f;
+
+        int n_pg_levels = 1 << TLCS_PITCH_GAIN_BITS;
+        for (int pi = 0; pi < n_pg_levels; pi++) {
+            float gp = tlcs_pitch_gain_dequantize(pi);
+            /* For this gp, optimal gc = (ft - gp*af) / (ff + 1e-10) */
+            float gc_opt = (ft - gp * af) / (ff + 1e-10f);
+            float gc_q;
+            int gi = tlcs_fcbgain_quantize(gc_opt, 1, &gc_q);
+            /* Compute weighted error: tt - 2*gp*at - 2*gc*ft + gp^2*aa + 2*gp*gc*af + gc^2*ff */
+            float err = -2.0f * gp * at - 2.0f * gc_q * ft
+                      + gp * gp * aa + 2.0f * gp * gc_q * af + gc_q * gc_q * ff;
+            if (err < best_err) {
+                best_err = err;
+                pg_idx = pi;
+                fcb_gain_idx = gi;
+                q_pg = gp;
+                q_cg = gc_q;
+            }
+        }
+        free(fcb_filtered);
 
         /* ---- Update excitation buffer ---- */
         float *total_exc = (float *)malloc((size_t)Nsub * sizeof(float));
