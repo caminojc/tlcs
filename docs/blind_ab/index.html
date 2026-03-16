@@ -64,7 +64,8 @@ async function init() {
             <div class="arow"><div class="albl">B</div><audio controls preload="none"><source src="${p.b_file}" type="audio/wav"></audio></div>
             <div class="choices">
                 <div class="btn" onclick="rate(${p.id}, 'A', this)">A is better</div>
-                <div class="btn" onclick="rate(${p.id}, 'same', this)">Same</div>
+                <div class="btn" onclick="rate(${p.id}, 'same-good', this)">Same (both good)</div>
+                <div class="btn" onclick="rate(${p.id}, 'same-bad', this)">Same (both bad)</div>
                 <div class="btn" onclick="rate(${p.id}, 'B', this)">B is better</div>
             </div>
         `;
@@ -146,7 +147,7 @@ function submitRatings() {
 }
 
 // Clear old ratings when pairs change (version key)
-const PAIRS_VERSION = 'v2';  // bump this when re-randomizing
+const PAIRS_VERSION = 'v3';  // bump this when re-randomizing
 const savedVersion = localStorage.getItem('tlc_ab_version');
 if (savedVersion !== PAIRS_VERSION) {
     localStorage.removeItem('tlc_ab_ratings');
