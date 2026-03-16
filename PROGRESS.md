@@ -1,47 +1,47 @@
-# TLCS Progress — 2026-03-16 03:00
+# TLCS Progress — 2026-03-16 03:30
 
-## Current Best: NISQA 1.53 avg (M1: 1.31, F2: 1.25, M2: 2.03)
-User says: "better but not like MLOW — still scratchy muffled"
-MLOW at same bitrate: NISQA ~3.8
+## Current Best: NISQA ~1.5 avg, SNR 5-7 dB
+User says "better" — recognizable speech, still scratchy/muffled vs MLOW.
 
-## Session Journey (NISQA)
-0.67 → 0.78 (LSP fix) → 1.3 (MLOW gain approach) → 1.53 (postfilters)
+## Session Journey
+| Change | NISQA | Key |
+|--------|-------|-----|
+| Start (broken LSP) | 0.67 | Unintelligible |
+| LSP root finder fixed | 0.78 | Still uniform fallback |
+| SILK-style LSP conversion | 0.78 | 62 dB roundtrip |
+| MLOW gain: W(z) on both h+target | 1.3 | Gains work in decoder |
+| Formant postfilter | 1.5 | De-muffled |
+| Harmonic postfilter | 1.5-2.0 | M2 best at 2.0 |
+| Best combined config | **1.53 avg** | Current |
 
-## What's Working
-- SILK-style LSP conversion (62 dB roundtrip)
-- MLOW-style gain: W(z) on both h and target, gain direct from search
-- 8-pulse Phi-based FCB search
-- Harmonic PF (0.64) + formant PF (0.65/0.80) + tilt (0.20)
-- Light noise fill (v=0.20, uv=0.40)
-- 8000 bps, 2×160 subframes
+## Config (tlcs_config.h)
+```
+PERC_GAMMA1=0.94, PERC_GAMMA2=0.60
+HARM_POSTF=0.64, FB=0.47
+FORMANT_PF=0.65/0.80, TILT=0.20
+NOISE_V=0.20, NOISE_UV=0.40
+PITCH_SHARPENING=0.0 (hurts female)
+LPC_ORDER=16, LSP 4×256 split VQ
+8 pulses, 2×160 subframes, 8000 bps
+```
 
-## Best Config (tlcs_config.h)
-- PERC_GAMMA1=0.94, PERC_GAMMA2=0.60
-- HARM_POSTF_STRENGTH=0.64, FB=0.47
-- FORMANT_PF_NUM=0.65, DEN=0.80, TILT=0.20
-- NOISE_V=0.20, NOISE_UV=0.40
-- PITCH_SHARPENING=0.0 (hurts female voice)
+## What Didn't Help
+- LPC order 12 (lost spectral detail, -0.3 NISQA)
+- 8-split VQ (too few entries per split)
+- Predictive VQ (drift/divergence)
+- Iterative pulse refinement (mixed results)
+- Pitch sharpening (hurts female voice)
+- Stronger perceptual weighting gamma (0.92 worse than 0.94)
 
-## Gap to MLOW (1.53 → 3.8)
-Parameter tuning is at its ceiling. The remaining 2.3 NISQA points need:
-
-1. **Delayed-decision codebook search** — MLOW uses Viterbi-like path tracking
-   with 30-130 survivors. Our greedy 8-pulse search places pulses suboptimally.
-   File: `smpl_celp.c` lines 283-430 (calc_gains_v with rate-distortion).
-
-2. **Variable pulse count** — MLOW adapts pulses per subframe via rate control.
-   Voiced frames get more pulses, silence gets fewer. 
-   File: `smpl_bitrate_controller.c` (subfr_importance weighting).
-
-3. **Joint ACB+FCB gain optimization** — MLOW solves a 3×3 system (2 ACB gains + 
-   1 FCB gain) jointly. We use separate scalar quantization.
-   File: `smpl_celp.c` lines 286-343 (Phi_all, dall, joint RD search).
-
-4. **Better pitch search** — MLOW uses 8 pitch subframes per frame with 
-   block-based tracking. We use 2 subframes with simple closed-loop.
+## Gap to MLOW (~1.5 → 3.8)
+Needs architectural changes:
+1. Delayed-decision codebook search (smpl_celp.c)
+2. Variable pulse count with rate control (smpl_bitrate_controller.c)
+3. Joint ACB+FCB gain optimization (3×3 system)
+4. Better pitch search (8 subframes, block tracking)
 
 ## DGX
-- SMPL steroids: gen 31+, best 3.81 (24 params, 200 gens)
+SMPL steroids optimizer gen 31+, best 3.81
 
 ## Repo
-https://github.com/caminojc/tlcs (branch: lr-v2-experiment, commit f755bae)
+https://github.com/caminojc/tlcs (branch: lr-v2-experiment, commit ee07a26)
