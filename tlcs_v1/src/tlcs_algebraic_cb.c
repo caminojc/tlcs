@@ -148,6 +148,68 @@ void tlcs_acb_search(const float *target, const float *h,
         }
     }
 
+    /* ---- Iterative refinement: reposition each pulse with others fixed ---- */
+    /* This is the key quality improvement over pure greedy search.
+     * MLOW uses delayed-decision; this is a simpler approximation. */
+    for (int refine = 0; refine < 3; refine++) {
+        for (int p = 0; p < TLCS_ACB_NUM_PULSES; p++) {
+            int track = p % TLCS_ACB_NUM_TRACKS;
+            int old_pos = positions[p];
+            float old_sign = signs[p];
+
+            /* Remove this pulse */
+            excitation[old_pos] -= old_sign;
+
+            /* Filter remaining excitation through h */
+            float *filt_rest = (float *)calloc((size_t)N, sizeof(float));
+            for (int i = 0; i < N; i++) {
+                if (excitation[i] != 0.0f) {
+                    for (int j = i; j < N; j++)
+                        filt_rest[j] += excitation[i] * h[j - i];
+                }
+            }
+
+            /* Compute residual target */
+            float rest_nrg = 0.0f;
+            for (int i = 0; i < N; i++) rest_nrg += filt_rest[i] * filt_rest[i];
+            float g_rest = 0.0f;
+            if (rest_nrg > 1e-10f) {
+                float rest_corr = 0.0f;
+                for (int i = 0; i < N; i++) rest_corr += target[i] * filt_rest[i];
+                g_rest = rest_corr / rest_nrg;
+            }
+            float resid[160]; /* TLCS_SUBFRAME_SIZE */
+            for (int i = 0; i < N; i++)
+                resid[i] = target[i] - g_rest * filt_rest[i];
+
+            /* Search best position for this pulse in its track */
+            int best_pos = old_pos;
+            float best_score = -1e30f;
+            for (int k = 0; k < TLCS_ACB_POS_PER_TRACK; k++) {
+                int pos = track + k * TLCS_ACB_NUM_TRACKS;
+                if (pos >= N) break;
+                float s = d_sign[pos];
+                float c = 0.0f, e = 0.0f;
+                for (int i = pos; i < N; i++) {
+                    c += resid[i] * h[i - pos];
+                    e += h[i - pos] * h[i - pos];
+                }
+                c *= s;
+                if (e < 1e-10f) continue;
+                float score = c * c / e;
+                if (score > best_score) {
+                    best_score = score;
+                    best_pos = pos;
+                }
+            }
+
+            positions[p] = best_pos;
+            signs[p] = d_sign[best_pos];
+            excitation[best_pos] += signs[p];
+            free(filt_rest);
+        }
+    }
+
     /* Final gain: recompute from full excitation for accuracy */
     {
         float *filtered = (float *)calloc((size_t)N, sizeof(float));
