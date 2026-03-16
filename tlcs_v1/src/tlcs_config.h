@@ -80,8 +80,8 @@
 #define TLCS_HARM_POSTF_CUTOFF_HZ    4000.0f
 
 /* ── Formant postfilter ────────────────────────────────── */
-#define TLCS_FORMANT_PF_GAMMA_NUM    0.01f
-#define TLCS_FORMANT_PF_GAMMA_DEN    0.01f
+#define TLCS_FORMANT_PF_GAMMA_NUM    0.50f
+#define TLCS_FORMANT_PF_GAMMA_DEN    0.60f
 #define TLCS_FORMANT_PF_TILT         0.30f
 
 /* ── Perceptual weighting filter ───────────────────────── */
