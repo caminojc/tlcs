@@ -1,0 +1,38 @@
+<!DOCTYPE html><html><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TLCS CELP (optimized) vs Stock SMPL</title>
+<style>*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,system-ui,sans-serif;background:#0a0a0a;color:#e0e0e0;padding:1.5rem;max-width:800px;margin:0 auto}
+h1{font-size:1.6rem;color:#fff;margin-bottom:0.5rem}
+.sub{color:#888;margin-bottom:2rem;font-size:0.9rem}
+.file{background:#111;border-radius:10px;padding:1.2rem;margin-bottom:1.5rem}
+.fname{font-weight:600;margin-bottom:0.8rem;color:#ccc}
+.row{display:grid;grid-template-columns:130px 1fr;align-items:center;gap:0.8rem;margin:0.4rem 0}
+.lbl{font-size:0.82rem}
+audio{width:100%;height:32px}
+.orig .lbl{color:#60a5fa} .tlcs .lbl{color:#4ade80} .smpl .lbl{color:#f97316}
+</style></head><body>
+<h1>TLCS CELP (CMA-ES optimized) vs Stock SMPL</h1>
+<p class="sub">TLCS = SMPL fork with 16 parameters optimized by CMA-ES on SCOREQ (gen 30, SCOREQ 3.979 vs stock 3.88). Listen for differences.</p>
+<div class="file"><div class="fname">Male (M1)</div>
+<div class="row orig"><div class="lbl">Original</div><audio controls preload="none"><source src="audio/orig_908-157963-0014.wav"></audio></div>
+<div class="row tlcs"><div class="lbl">TLCS 5k (opt)</div><audio controls preload="none"><source src="audio/tlcs_5k_908-157963-0014.wav"></audio></div>
+<div class="row smpl"><div class="lbl">SMPL 5k (stock)</div><audio controls preload="none"><source src="audio/smpl_5k_908-157963-0014.wav"></audio></div>
+<div class="row tlcs"><div class="lbl">TLCS 8k (opt)</div><audio controls preload="none"><source src="audio/tlcs_8k_908-157963-0014.wav"></audio></div>
+<div class="row smpl"><div class="lbl">SMPL 8k (stock)</div><audio controls preload="none"><source src="audio/smpl_8k_908-157963-0014.wav"></audio></div>
+</div>
+<div class="file"><div class="fname">Female (F1)</div>
+<div class="row orig"><div class="lbl">Original</div><audio controls preload="none"><source src="audio/orig_237-134500-0022.wav"></audio></div>
+<div class="row tlcs"><div class="lbl">TLCS 5k (opt)</div><audio controls preload="none"><source src="audio/tlcs_5k_237-134500-0022.wav"></audio></div>
+<div class="row smpl"><div class="lbl">SMPL 5k (stock)</div><audio controls preload="none"><source src="audio/smpl_5k_237-134500-0022.wav"></audio></div>
+<div class="row tlcs"><div class="lbl">TLCS 8k (opt)</div><audio controls preload="none"><source src="audio/tlcs_8k_237-134500-0022.wav"></audio></div>
+<div class="row smpl"><div class="lbl">SMPL 8k (stock)</div><audio controls preload="none"><source src="audio/smpl_8k_237-134500-0022.wav"></audio></div>
+</div>
+<div class="file"><div class="fname">Male (M2)</div>
+<div class="row orig"><div class="lbl">Original</div><audio controls preload="none"><source src="audio/orig_2961-961-0009.wav"></audio></div>
+<div class="row tlcs"><div class="lbl">TLCS 5k (opt)</div><audio controls preload="none"><source src="audio/tlcs_5k_2961-961-0009.wav"></audio></div>
+<div class="row smpl"><div class="lbl">SMPL 5k (stock)</div><audio controls preload="none"><source src="audio/smpl_5k_2961-961-0009.wav"></audio></div>
+<div class="row tlcs"><div class="lbl">TLCS 8k (opt)</div><audio controls preload="none"><source src="audio/tlcs_8k_2961-961-0009.wav"></audio></div>
+<div class="row smpl"><div class="lbl">SMPL 8k (stock)</div><audio controls preload="none"><source src="audio/smpl_8k_2961-961-0009.wav"></audio></div>
+</div>
+</body></html>

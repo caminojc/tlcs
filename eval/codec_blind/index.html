@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Codec Blind Test — TLCS vs SMPL vs EVS</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,system-ui,sans-serif;background:#0a0a0a;color:#e0e0e0;padding:1.5rem;max-width:700px;margin:0 auto}
+h1{font-size:1.8rem;margin-bottom:0.3rem;color:#fff}
+.sub{color:#888;margin-bottom:1.5rem;font-size:0.9rem}
+.progress{background:#222;border-radius:8px;padding:0.8rem 1rem;margin-bottom:1.5rem}
+.bar{height:6px;background:#333;border-radius:3px;margin-top:0.5rem}
+.fill{height:6px;background:#60a5fa;border-radius:3px;transition:width 0.3s}
+.sample{background:#111;border-radius:10px;padding:1.2rem;margin-bottom:1rem}
+.ref-box{background:#0a1520;border:1px solid #1a3a5a;border-radius:8px;padding:1rem;margin-bottom:1rem}
+.ref-box .label{color:#60a5fa;font-size:0.8rem;margin-bottom:0.4rem}
+.test-box{margin-bottom:0.8rem}
+.test-box .label{color:#ccc;font-weight:600;margin-bottom:0.4rem}
+audio{width:100%;height:36px}
+.stars{display:flex;gap:0.5rem;margin:1rem 0;justify-content:center}
+.star{width:48px;height:48px;border-radius:8px;border:2px solid #333;display:flex;align-items:center;justify-content:center;font-size:1.3rem;font-weight:700;cursor:pointer;transition:all 0.15s;user-select:none}
+.star:hover{border-color:#60a5fa;background:#1a2a3a}
+.star.active{border-color:#fbbf24;background:#2a2a1a;color:#fbbf24}
+.star-labels{display:flex;justify-content:space-between;font-size:0.7rem;color:#666;padding:0 0.5rem}
+.btn-row{display:flex;gap:1rem;justify-content:center;margin-top:0.5rem}
+.btn{padding:0.5rem 2rem;border-radius:6px;border:none;font-size:1rem;cursor:pointer;font-weight:600}
+.btn-next{background:#60a5fa;color:#000}
+.btn-next:disabled{background:#333;color:#666;cursor:not-allowed}
+.btn-skip{background:#222;color:#888}
+.done{display:none;text-align:center;padding:2rem}
+.done h2{margin-bottom:1rem;color:#fff}
+#dl-btn{background:#4ade80;color:#000;padding:0.8rem 3rem;border:none;border-radius:8px;font-size:1.1rem;font-weight:700;cursor:pointer;margin-top:1rem}
+table{width:100%;border-collapse:collapse;margin:1rem 0;font-size:0.85rem}
+th{text-align:left;padding:0.4rem;border-bottom:1px solid #333;color:#888}
+td{padding:0.4rem;border-bottom:1px solid #1a1a1a}
+</style></head><body>
+<h1>Codec Blind Test</h1>
+<p class="sub">18 samples from 3 speakers. Rate each 1-5 for naturalness vs the original. One of the samples in each group IS the original — see if you can spot it.</p>
+
+<div class="progress">
+  <span id="prog">Sample 1 / 18</span>
+  <div class="bar"><div class="fill" id="fill" style="width:0%"></div></div>
+</div>
+
+<div id="container"></div>
+<div class="done" id="done">
+  <h2>Results</h2>
+  <div id="summary"></div>
+  <button id="dl-btn" onclick="download()">Download Results JSON</button>
+</div>
+
+<script>
+const ITEMS = [{"blind_id": 0, "audio": "audio/tlcs5k_237-134500-0022.wav", "file": "237-134500-0022.wav"}, {"blind_id": 1, "audio": "audio/tlcs5k_2961-961-0009.wav", "file": "2961-961-0009.wav"}, {"blind_id": 2, "audio": "audio/smpl8k_2961-961-0009.wav", "file": "2961-961-0009.wav"}, {"blind_id": 3, "audio": "audio/tlcs5k_908-157963-0014.wav", "file": "908-157963-0014.wav"}, {"blind_id": 4, "audio": "audio/orig_2961-961-0009.wav", "file": "2961-961-0009.wav"}, {"blind_id": 5, "audio": "audio/tlcs96k_237-134500-0022.wav", "file": "237-134500-0022.wav"}, {"blind_id": 6, "audio": "audio/evs96k_908-157963-0014.wav", "file": "908-157963-0014.wav"}, {"blind_id": 7, "audio": "audio/tlcs96k_908-157963-0014.wav", "file": "908-157963-0014.wav"}, {"blind_id": 8, "audio": "audio/evs96k_2961-961-0009.wav", "file": "2961-961-0009.wav"}, {"blind_id": 9, "audio": "audio/orig_237-134500-0022.wav", "file": "237-134500-0022.wav"}, {"blind_id": 10, "audio": "audio/tlcs96k_2961-961-0009.wav", "file": "2961-961-0009.wav"}, {"blind_id": 11, "audio": "audio/smpl5k_908-157963-0014.wav", "file": "908-157963-0014.wav"}, {"blind_id": 12, "audio": "audio/smpl5k_2961-961-0009.wav", "file": "2961-961-0009.wav"}, {"blind_id": 13, "audio": "audio/smpl8k_908-157963-0014.wav", "file": "908-157963-0014.wav"}, {"blind_id": 14, "audio": "audio/evs96k_237-134500-0022.wav", "file": "237-134500-0022.wav"}, {"blind_id": 15, "audio": "audio/orig_908-157963-0014.wav", "file": "908-157963-0014.wav"}, {"blind_id": 16, "audio": "audio/smpl8k_237-134500-0022.wav", "file": "237-134500-0022.wav"}, {"blind_id": 17, "audio": "audio/smpl5k_237-134500-0022.wav", "file": "237-134500-0022.wav"}];
+const FILE_MAP = {};
+ITEMS.forEach(s => {
+  if (!FILE_MAP[s.file]) FILE_MAP[s.file] = 'audio/orig_' + s.file;
+});
+
+let idx = 0, cur = 0, ratings = [];
+
+function render() {
+  if (idx >= ITEMS.length) { finish(); return; }
+  const s = ITEMS[idx];
+  document.getElementById('prog').textContent = 'Sample ' + (idx+1) + ' / ' + ITEMS.length;
+  document.getElementById('fill').style.width = (idx/ITEMS.length*100) + '%';
+  const c = document.getElementById('container');
+  c.innerHTML = '<div class="sample">' +
+    '<div class="ref-box"><div class="label">ORIGINAL REFERENCE (' + s.file.split('-')[0] + ')</div>' +
+    '<audio controls preload="auto"><source src="' + FILE_MAP[s.file] + '" type="audio/wav"></audio></div>' +
+    '<div class="test-box"><div class="label">Sample #' + (idx+1) + ' — rate this for naturalness</div>' +
+    '<audio controls preload="auto"><source src="' + s.audio + '" type="audio/wav"></audio></div>' +
+    '<div class="star-labels"><span>Bad</span><span>Poor</span><span>Fair</span><span>Good</span><span>Excellent</span></div>' +
+    '<div class="stars">' +
+    [1,2,3,4,5].map(n => '<div class="star" data-v="'+n+'" onclick="rate('+n+')">'+n+'</div>').join('') +
+    '</div>' +
+    '<div class="btn-row">' +
+    '<button class="btn btn-skip" onclick="skip()">Skip</button>' +
+    '<button class="btn btn-next" id="nxt" onclick="nxt()" disabled>Next \u2192</button></div></div>';
+}
+
+function rate(v) {
+  cur = v;
+  document.querySelectorAll('.star').forEach(s => {
+    s.classList.toggle('active', parseInt(s.dataset.v) <= v);
+  });
+  document.getElementById('nxt').disabled = false;
+}
+
+function nxt() {
+  if (!cur) return;
+  ratings.push({blind_id: ITEMS[idx].blind_id, rating: cur});
+  cur = 0; idx++; render();
+}
+function skip() { cur = 0; idx++; render(); }
+
+function finish() {
+  document.getElementById('container').style.display = 'none';
+  document.getElementById('fill').style.width = '100%';
+  document.getElementById('prog').textContent = 'Done! ' + ratings.length + ' rated';
+  document.getElementById('done').style.display = 'block';
+
+  // Reveal results (decode blind IDs from key)
+  // We don't have the key in JS, so just show blind IDs + ratings
+  // The JSON download has everything needed to decode
+  let t = '<table><tr><th>#</th><th>Rating</th></tr>';
+  ratings.forEach((r,i) => {
+    const c = r.rating >= 4 ? '#4ade80' : r.rating >= 3 ? '#fbbf24' : '#f87171';
+    t += '<tr><td>' + (i+1) + '</td><td style="font-weight:700;color:'+c+'">' + r.rating + '</td></tr>';
+  });
+  t += '</table><p style="color:#888;margin-top:1rem">Download the JSON, then I\'ll reveal which codec was which.</p>';
+  document.getElementById('summary').innerHTML = t;
+}
+
+function download() {
+  const blob = new Blob([JSON.stringify({ratings:ratings, timestamp:new Date().toISOString()}, null, 2)], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'codec_blind_ratings.json';
+  a.click();
+}
+
+render();
+</script></body></html>

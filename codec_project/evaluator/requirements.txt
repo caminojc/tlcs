@@ -1,0 +1,7 @@
+torch>=2.1
+torchaudio>=2.1
+transformers>=4.35
+scipy
+numpy
+matplotlib
+pesq  # optional — for validation correlation with PESQ scores

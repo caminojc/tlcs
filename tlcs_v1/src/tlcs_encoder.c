@@ -366,11 +366,54 @@ int tlcs_encode(TlcsEncoder *enc, const int16_t *pcm,
             target2[i] = target[i] - pitch_gain * acb_filtered[i];
         }
 
-        /* ---- Algebraic codebook search ---- */
+        /* ---- Algebraic codebook search (in weighted domain) ---- */
         int fcb_index;
-        float cb_gain;
+        float cb_gain_weighted;
         float fcb_exc[TLCS_SUBFRAME_SIZE];
-        tlcs_acb_search(target2, h, Nsub, &fcb_index, &cb_gain, fcb_exc);
+        tlcs_acb_search(target2, h, Nsub, &fcb_index, &cb_gain_weighted, fcb_exc);
+
+        /* Recompute gains in UNWEIGHTED domain for the decoder.
+         * The FCB search found optimal pulse positions in weighted domain,
+         * but the decoder synthesizes through 1/A(z) without weighting.
+         * Compute: gain = <unweighted_target, H_synth*c> / <H_synth*c, H_synth*c> */
+        float cb_gain;
+        {
+            float h_synth_only[TLCS_SUBFRAME_SIZE];
+            tlcs_lpc_impulse_response(lpc_sub, P, Nsub, h_synth_only);
+
+            /* Unweighted target = speech - zero-state response */
+            float acb_synth[TLCS_SUBFRAME_SIZE];
+            tlcs_convolve(acb_exc, h_synth_only, Nsub, acb_synth);
+            float tgt_uw[TLCS_SUBFRAME_SIZE];
+            for (int i = 0; i < Nsub; i++) {
+                tgt_uw[i] = target_unweighted[i] - pitch_gain * acb_synth[i];
+            }
+
+            float fcb_synth[TLCS_SUBFRAME_SIZE];
+            tlcs_convolve(fcb_exc, h_synth_only, Nsub, fcb_synth);
+            float num = 0, den = 0;
+            for (int i = 0; i < Nsub; i++) {
+                num += tgt_uw[i] * fcb_synth[i];
+                den += fcb_synth[i] * fcb_synth[i];
+            }
+            cb_gain = num / (den + 1e-10f);
+        }
+
+        /* Also recompute pitch gain in unweighted domain */
+        {
+            float h_synth_only[TLCS_SUBFRAME_SIZE];
+            tlcs_lpc_impulse_response(lpc_sub, P, Nsub, h_synth_only);
+            float acb_synth[TLCS_SUBFRAME_SIZE];
+            tlcs_convolve(acb_exc, h_synth_only, Nsub, acb_synth);
+            float num = 0, den = 0;
+            for (int i = 0; i < Nsub; i++) {
+                num += target_unweighted[i] * acb_synth[i];
+                den += acb_synth[i] * acb_synth[i];
+            }
+            pitch_gain = num / (den + 1e-10f);
+            if (pitch_gain < 0.0f) pitch_gain = 0.0f;
+            if (pitch_gain > 1.2f) pitch_gain = 1.2f;
+        }
 
         /* ---- Gain quantization ---- */
         float q_pg, q_cg;

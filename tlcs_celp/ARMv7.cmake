@@ -1,0 +1,16 @@
+set(CMAKE_SYSTEM_NAME Linux)
+set(CMAKE_SYSTEM_PROCESSOR arm)
+set(CMAKE_HOST_SYSTEM_PROCESSOR arm)
+# Set the paths for the required tools.
+set(ANDROID_TOOLCHAIN_ROOT $ENV{ANDROID_NDK_ROOT}/toolchains/llvm/prebuilt/darwin-x86_64)
+set(CMAKE_CXX_COMPILER ${ANDROID_TOOLCHAIN_ROOT}/bin/armv7a-linux-androideabi21-clang++)
+set(CMAKE_C_COMPILER ${ANDROID_TOOLCHAIN_ROOT}/bin/armv7a-linux-androideabi21-clang)
+set(CMAKE_AR ${ANDROID_TOOLCHAIN_ROOT}/arm-linux-androideabi/bin/ar)
+set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
+set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
+set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
+set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)
+set(HAVE_FLAG_SEARCH_PATHS_FIRST 0)
+# Disable dynamic linking so we can copy over the binaries.
+set(BUILD_STATIC_LIBS ON)
+set(CMAKE_EXE_LINKER_FLAGS "-static")

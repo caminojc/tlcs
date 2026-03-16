@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Round 2: SBR</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,system-ui,sans-serif;background:#0a0a0a;color:#e0e0e0;padding:1.5rem;max-width:700px;margin:0 auto}
+h1{font-size:1.6rem;color:#fff;margin-bottom:0.3rem}
+.sub{color:#888;margin-bottom:1.5rem;font-size:0.9rem}
+.sample{background:#111;border-radius:10px;padding:1.2rem;margin-bottom:1rem}
+.ref-box{background:#0a1520;border:1px solid #1a3a5a;border-radius:8px;padding:1rem;margin-bottom:1rem}
+.ref-box .label{color:#60a5fa;font-size:0.8rem;margin-bottom:0.4rem}
+.test-box .label{color:#ccc;font-weight:600;margin-bottom:0.4rem}
+audio{width:100%;height:36px}
+.stars{display:flex;gap:0.5rem;margin:1rem 0;justify-content:center}
+.star{width:48px;height:48px;border-radius:8px;border:2px solid #333;display:flex;align-items:center;justify-content:center;font-size:1.3rem;font-weight:700;cursor:pointer;transition:all 0.15s;user-select:none}
+.star:hover{border-color:#60a5fa;background:#1a2a3a}
+.star.active{border-color:#fbbf24;background:#2a2a1a;color:#fbbf24}
+.star-labels{display:flex;justify-content:space-between;font-size:0.7rem;color:#666;padding:0 0.5rem}
+.btn{padding:0.5rem 2rem;border-radius:6px;border:none;font-size:1rem;cursor:pointer;font-weight:600;display:block;margin:0.5rem auto}
+.btn-next{background:#60a5fa;color:#000}
+.btn-next:disabled{background:#333;color:#666;cursor:not-allowed}
+.done{display:none;text-align:center;padding:2rem}
+#dl-btn{background:#4ade80;color:#000;padding:0.8rem 3rem;border:none;border-radius:8px;font-size:1.1rem;font-weight:700;cursor:pointer;margin-top:1rem}
+</style></head><body>
+<h1>Round 2: SBR (Spectral Band Replication)</h1>
+<p class="sub">6 samples — same file, different SBR strength. Light postfilter locked in. Rate 1-5.</p>
+<div id="c"></div>
+<div class="done" id="done"><h2>Done!</h2><p id="sum"></p>
+<button id="dl-btn" onclick="dl()">Download</button></div>
+<script>
+const O=[3, 4, 0, 1, 5, 2];
+let i=0,cur=0,R=[];
+function render(){if(i>=O.length){finish();return}
+const v=O[i];document.getElementById('c').innerHTML='<div class="sample">'+
+'<div class="ref-box"><div class="label">ORIGINAL</div>'+
+'<audio controls preload="auto"><source src="audio/original.wav" type="audio/wav"></audio></div>'+
+'<div class="test-box"><div class="label">Sample '+(i+1)+' of 6</div>'+
+'<audio controls preload="auto"><source src="audio/v'+v+'.wav" type="audio/wav"></audio></div>'+
+'<div class="star-labels"><span>Bad</span><span>Poor</span><span>Fair</span><span>Good</span><span>Excellent</span></div>'+
+'<div class="stars">'+[1,2,3,4,5].map(n=>'<div class="star" data-v="'+n+'" onclick="rate('+n+')">'+n+'</div>').join('')+'</div>'+
+'<button class="btn btn-next" id="nxt" onclick="nxt()" disabled>Next \u2192</button></div>';}
+function rate(v){cur=v;document.querySelectorAll('.star').forEach(s=>s.classList.toggle('active',parseInt(s.dataset.v)<=v));document.getElementById('nxt').disabled=false}
+function nxt(){if(!cur)return;R.push({vid:O[i],rating:cur});cur=0;i++;render()}
+function finish(){document.getElementById('c').style.display='none';document.getElementById('done').style.display='block';
+let t='<table style="width:100%;text-align:center;margin:1rem 0"><tr><th>Sample</th><th>Rating</th></tr>';
+R.forEach((r,j)=>{t+='<tr><td>'+(j+1)+'</td><td style="font-weight:700">'+r.rating+'</td></tr>'});t+='</table>';
+document.getElementById('sum').innerHTML=t;}
+function dl(){const b=new Blob([JSON.stringify({ratings:R,round:'sbr',timestamp:new Date().toISOString()},null,2)],{type:'application/json'});
+const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='round2_sbr.json';a.click();}
+render();
+</script></body></html>

@@ -1,0 +1,36 @@
+SMPL_HEAD = \
+smpl/pffft/pffft.h \
+smpl/opus_smpl_encode.h \
+smpl/opus_smpl_decode.h \
+smpl/smpl_api.h \
+smpl/smpl_bitrate_controller.h \
+smpl/smpl_celp.h \
+smpl/smpl_core_decoder.h \
+smpl/smpl_core_encoder.h \
+smpl/smpl_codec_util.h \
+smpl/smpl_defines.h \
+smpl/smpl_errors.h \
+smpl/smpl_filt.h \
+smpl/smpl_filt_allpass_fb.h \
+smpl/smpl_get_signal_mode.h \
+smpl/smpl_lpc.h \
+smpl/smpl_lsf_quant.h \
+smpl/smpl_lsf_tables.h \
+smpl/smpl_nrgres_tables.h \
+smpl/smpl_param_coding.h \
+smpl/smpl_perc_wght.h \
+smpl/smpl_pitch.h \
+smpl/smpl_pitch_tables.h \
+smpl/smpl_plc.h \
+smpl/smpl_postfilter.h \
+smpl/smpl_pulse_coding.h \
+smpl/smpl_hb_lpc_tables.h \
+smpl/smpl_hb_gain_tables.h \
+smpl/smpl_bandwidth_extension.h \
+smpl/smpl_structs.h \
+smpl/smpl_tables.h \
+smpl/smpl_typedef.h \
+smpl/smpl_vad.h \
+smpl/smpl_vad_wrapper.h \
+smpl/opus_smpl_repacketizer.h \
+smpl/smpl_quant_nrg_res.h

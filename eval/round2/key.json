@@ -1,0 +1,18 @@
+{
+  "order": [
+    3,
+    4,
+    0,
+    1,
+    5,
+    2
+  ],
+  "labels": [
+    "No SBR",
+    "Minimal SBR (0.3)",
+    "Light SBR (0.55)",
+    "Moderate SBR (0.8)",
+    "Full SBR (1.0)",
+    "Light SBR deep source"
+  ]
+}
