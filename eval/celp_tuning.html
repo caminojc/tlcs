@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TLC CELP Tuning — Noise Fill + Harmonic PF</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;background:#0a0a0a;color:#e0e0e0;padding:2rem;line-height:1.6}
+h1{font-size:1.8rem;margin-bottom:0.3rem;color:#fff}
+h2{font-size:1.2rem;margin:2rem 0 0.8rem;color:#ccc;border-bottom:1px solid #333;padding-bottom:0.5rem}
+.sub{color:#888;margin-bottom:2rem}
+.listen{background:#111;border-radius:8px;padding:1rem;margin:0.8rem 0}
+.arow{display:grid;grid-template-columns:220px 1fr;align-items:center;gap:0.6rem;margin:0.3rem 0}
+.albl{font-size:0.8rem;color:#aaa}
+audio{width:100%;height:28px}
+</style></head><body>
+<h1>CELP Tuning: Shaped NF + Harmonic PF</h1>
+<p class="sub">Comparing harmonic post-filter strength and noise fill. Which is smoothest without losing clarity?</p>
+
+<h2>908-157963-0014 (M1) — 9.6k</h2>
+<div class="listen">
+<div class="arow"><div class="albl">Original</div><audio controls preload="none"><source src="audio/908-157963-0014.wav" type="audio/wav"></audio></div>
+<div class="arow"><div class="albl">SMPL 8k (target)</div><audio controls preload="none"><source src="audio/908-157963-0014_smpl-8k.wav" type="audio/wav"></audio></div>
+<div class="arow"><div class="albl">TLC TCX 9.6k</div><audio controls preload="none"><source src="audio/908-157963-0014_tlcs-9.6k.wav" type="audio/wav"></audio></div>
+<div class="arow"><div class="albl" style="color:#fbbf24">CELP harm=0.30</div><audio controls preload="none"><source src="audio/908-157963-0014_celp-h0.30.wav" type="audio/wav"></audio></div>
+<div class="arow"><div class="albl" style="color:#60a5fa">CELP harm=0.40</div><audio controls preload="none"><source src="audio/908-157963-0014_celp-h0.40.wav" type="audio/wav"></audio></div>
+<div class="arow"><div class="albl" style="color:#a78bfa">CELP harm=0.50</div><audio controls preload="none"><source src="audio/908-157963-0014_celp-h0.50.wav" type="audio/wav"></audio></div>
+<div class="arow"><div class="albl" style="color:#4ade80">CELP full (h=0.40, NF=0.30/0.60)</div><audio controls preload="none"><source src="audio/908-157963-0014_celp-full.wav" type="audio/wav"></audio></div>
+</div>
+
+<h2>1284-1180-0032 (F2) — 9.6k</h2>
+<div class="listen">
+<div class="arow"><div class="albl">Original</div><audio controls preload="none"><source src="audio/1284-1180-0032.wav" type="audio/wav"></audio></div>
+<div class="arow"><div class="albl">SMPL 8k (target)</div><audio controls preload="none"><source src="audio/1284-1180-0032_smpl-8k.wav" type="audio/wav"></audio></div>
+<div class="arow"><div class="albl">TLC TCX 9.6k</div><audio controls preload="none"><source src="audio/1284-1180-0032_tlcs-9.6k.wav" type="audio/wav"></audio></div>
+<div class="arow"><div class="albl" style="color:#fbbf24">CELP harm=0.30</div><audio controls preload="none"><source src="audio/1284-1180-0032_celp-h0.30.wav" type="audio/wav"></audio></div>
+<div class="arow"><div class="albl" style="color:#60a5fa">CELP harm=0.40</div><audio controls preload="none"><source src="audio/1284-1180-0032_celp-h0.40.wav" type="audio/wav"></audio></div>
+<div class="arow"><div class="albl" style="color:#a78bfa">CELP harm=0.50</div><audio controls preload="none"><source src="audio/1284-1180-0032_celp-h0.50.wav" type="audio/wav"></audio></div>
+<div class="arow"><div class="albl" style="color:#4ade80">CELP full (h=0.40, NF=0.30/0.60)</div><audio controls preload="none"><source src="audio/1284-1180-0032_celp-full.wav" type="audio/wav"></audio></div>
+</div>
+
+</body></html>
