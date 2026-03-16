@@ -183,33 +183,25 @@ int tlcs_decode(TlcsDecoder *dec, const uint8_t *buf, int buf_size,
         float frac = (float)sd->pitch_frac_idx * 0.5f;  /* 1-bit: 0 or 0.5 */
         float pitch_lag = (float)int_lag + frac;
 
-        /* Dequantize gains — dB-stepped for FCB, scalar for pitch */
-        float q_pg = tlcs_pitch_gain_dequantize(sd->pitch_gain_idx);
+        /* Dequantize gains — 2-basis ACB joint codebook + dB-stepped FCB */
+        float q_g0, q_g1;
+        tlcs_acb_gain_dequantize(sd->pitch_gain_idx, &q_g0, &q_g1);
         float q_cg = tlcs_fcbgain_dequantize(sd->gain_index, 1 /*voiced*/);
 
-        /* Build adaptive codebook excitation */
-        float *acb_exc = (float *)malloc((size_t)Nsub * sizeof(float));
-        tlcs_pitch_build_acb(dec->exc_buf, dec->exc_len,
-                             pitch_lag, Nsub, acb_exc);
-
-        /* Pitch sharpening: reinforce periodicity */
-        {
-            int ilag = (int)roundf(pitch_lag);
-            if (ilag > 0 && ilag < Nsub) {
-                for (int i = ilag; i < Nsub; i++) {
-                    acb_exc[i] += TLCS_PITCH_SHARPENING_COEF * acb_exc[i - ilag];
-                }
-            }
-        }
+        /* Build 2-basis adaptive codebook excitation (MLOW-style) */
+        float *acb_basis0 = (float *)malloc((size_t)Nsub * sizeof(float));
+        float *acb_basis1 = (float *)malloc((size_t)Nsub * sizeof(float));
+        tlcs_pitch_build_acb_2basis(dec->exc_buf, dec->exc_len,
+                                     pitch_lag, Nsub, acb_basis0, acb_basis1);
 
         /* Build fixed codebook excitation (8 pulses, split index) */
         float *fcb_exc = (float *)malloc((size_t)Nsub * sizeof(float));
         tlcs_acb_decode(sd->fcb_index_lo, sd->fcb_index_hi, Nsub, fcb_exc);
 
-        /* Combine excitations */
+        /* Combine excitations: acb = g0*basis0 + g1*basis1 */
         float *total_exc = (float *)malloc((size_t)Nsub * sizeof(float));
         for (int i = 0; i < Nsub; i++) {
-            total_exc[i] = q_pg * acb_exc[i] + q_cg * fcb_exc[i];
+            total_exc[i] = q_g0 * acb_basis0[i] + q_g1 * acb_basis1[i] + q_cg * fcb_exc[i];
         }
 
         /* ---- Shaped noise fill ---- */
@@ -220,8 +212,8 @@ int tlcs_decode(TlcsDecoder *dec, const uint8_t *buf, int buf_size,
             }
             exc_energy /= (float)Nsub;
 
-            float noise_gain = (q_pg > 0.5f) ? TLCS_NOISE_V_GAIN : TLCS_NOISE_UV_GAIN;
-            float noise_scale = noise_gain * (1.0f - q_pg * 0.7f);
+            float noise_gain = (q_g0 > 0.5f) ? TLCS_NOISE_V_GAIN : TLCS_NOISE_UV_GAIN;
+            float noise_scale = noise_gain * (1.0f - q_g0 * 0.7f);
             if (noise_scale < 0.0f) noise_scale = 0.0f;
 
             float *noise_buf = (float *)malloc((size_t)Nsub * sizeof(float));
@@ -269,7 +261,8 @@ int tlcs_decode(TlcsDecoder *dec, const uint8_t *buf, int buf_size,
 
         memcpy(&output[sf * Nsub], pf_out, Nsub * sizeof(float));
 
-        free(acb_exc);
+        free(acb_basis0);
+        free(acb_basis1);
         free(fcb_exc);
         free(total_exc);
         free(speech);

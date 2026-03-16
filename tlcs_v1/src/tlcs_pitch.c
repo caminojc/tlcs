@@ -234,3 +234,40 @@ void tlcs_pitch_build_acb(const float *exc_buf, int exc_len,
     sinc_table_init();
     build_acb_frac(exc_buf, exc_len, lag, subframe_size, out);
 }
+
+/* ================================================================== */
+/* Public: build 2-basis ACB (MLOW-style)                              */
+/* basis0 = pitch-delayed signal                                       */
+/* basis1 = exc[i-lag-1] + exc[i-lag+1]  (symmetric neighbor sum)      */
+/* ================================================================== */
+
+void tlcs_pitch_build_acb_2basis(const float *exc_buf, int exc_len,
+                                  float lag, int subframe_size,
+                                  float *basis0, float *basis1)
+{
+    sinc_table_init();
+
+    /* basis0: standard pitch prediction */
+    build_acb_frac(exc_buf, exc_len, lag, subframe_size, basis0);
+
+    /* basis1: sum of adjacent pitch-delayed samples (lag-1 and lag+1) */
+    float lag_m1 = lag + 1.0f;  /* lag+1 in excitation = one sample earlier */
+    float lag_p1 = lag - 1.0f;  /* lag-1 in excitation = one sample later */
+
+    float tmp_m1[TLCS_SUBFRAME_SIZE];
+    float tmp_p1[TLCS_SUBFRAME_SIZE];
+
+    if (lag_p1 < 1.0f) {
+        /* Edge case: lag too small for lag-1, just use lag+1 doubled */
+        build_acb_frac(exc_buf, exc_len, lag_m1, subframe_size, tmp_m1);
+        for (int i = 0; i < subframe_size; i++) {
+            basis1[i] = 2.0f * tmp_m1[i];
+        }
+    } else {
+        build_acb_frac(exc_buf, exc_len, lag_m1, subframe_size, tmp_m1);
+        build_acb_frac(exc_buf, exc_len, lag_p1, subframe_size, tmp_p1);
+        for (int i = 0; i < subframe_size; i++) {
+            basis1[i] = tmp_m1[i] + tmp_p1[i];
+        }
+    }
+}

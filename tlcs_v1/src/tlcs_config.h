@@ -24,6 +24,9 @@
 #define TLCS_LSP_CB_SIZE        (1 << TLCS_LSP_CB_BITS)
 #define TLCS_LSP_TOTAL_BITS     (TLCS_LSP_NUM_SPLITS * TLCS_LSP_CB_BITS)  /* 32 */
 
+/* ── ACB 2-basis joint gain codebook ───────────────────── */
+#define TLCS_ACB_GAIN_ENTRIES  8  /* 3 bits for joint (g0, g1) codebook */
+
 /* ── Pitch ─────────────────────────────────────────────── */
 #define TLCS_PITCH_MIN_LAG      32      /* ~500 Hz @ 16 kHz */
 #define TLCS_PITCH_MAX_LAG      159     /* ~100 Hz */

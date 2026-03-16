@@ -24,6 +24,14 @@ void tlcs_pitch_closed_loop(const float *target, const float *h,
 void tlcs_pitch_build_acb(const float *exc_buf, int exc_len,
                           float lag, int subframe_size, float *out);
 
+/* Build 2-basis adaptive codebook vectors (MLOW-style).
+ * basis0: standard pitch-delayed signal.
+ * basis1: sum of adjacent pitch-delayed samples (lag-1 + lag+1).
+ * Both output vectors are subframe_size samples. */
+void tlcs_pitch_build_acb_2basis(const float *exc_buf, int exc_len,
+                                  float lag, int subframe_size,
+                                  float *basis0, float *basis1);
+
 /* Convolve x with h, causal, truncated to len samples. */
 void tlcs_convolve(const float *x, const float *h, int len, float *out);
 

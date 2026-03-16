@@ -333,28 +333,22 @@ int tlcs_encode(TlcsEncoder *enc, const int16_t *pcm,
                                Nsub, search_min, search_max,
                                &pitch_lag, &pitch_gain);
 
-        /* Build ACB excitation */
-        float *acb_exc = (float *)malloc((size_t)Nsub * sizeof(float));
-        tlcs_pitch_build_acb(enc->exc_buf, enc->exc_len,
-                             pitch_lag, Nsub, acb_exc);
+        /* Build 2-basis ACB excitation (MLOW-style) */
+        float *acb_basis0 = (float *)malloc((size_t)Nsub * sizeof(float));
+        float *acb_basis1 = (float *)malloc((size_t)Nsub * sizeof(float));
+        tlcs_pitch_build_acb_2basis(enc->exc_buf, enc->exc_len,
+                                     pitch_lag, Nsub, acb_basis0, acb_basis1);
 
-        /* Pitch sharpening: reinforce periodicity */
-        {
-            int ilag = (int)roundf(pitch_lag);
-            if (ilag > 0 && ilag < Nsub) {
-                for (int i = ilag; i < Nsub; i++) {
-                    acb_exc[i] += TLCS_PITCH_SHARPENING_COEF * acb_exc[i - ilag];
-                }
-            }
-        }
+        /* Filter both bases through h for weighted-domain search */
+        float *acb_filt0 = (float *)malloc((size_t)Nsub * sizeof(float));
+        float *acb_filt1 = (float *)malloc((size_t)Nsub * sizeof(float));
+        tlcs_convolve(acb_basis0, h, Nsub, acb_filt0);
+        tlcs_convolve(acb_basis1, h, Nsub, acb_filt1);
 
-        /* Remove ACB contribution from target */
-        float *acb_filtered = (float *)malloc((size_t)Nsub * sizeof(float));
-        tlcs_convolve(acb_exc, h, Nsub, acb_filtered);
-
+        /* Remove best ACB contribution from target (use pitch_gain on basis0 for FCB search) */
         float *target2 = (float *)malloc((size_t)Nsub * sizeof(float));
         for (int i = 0; i < Nsub; i++) {
-            target2[i] = target[i] - pitch_gain * acb_filtered[i];
+            target2[i] = target[i] - pitch_gain * acb_filt0[i];
         }
 
         /* ---- Algebraic codebook search (weighted domain, Phi-based) ---- */
@@ -364,45 +358,57 @@ int tlcs_encode(TlcsEncoder *enc, const int16_t *pcm,
         tlcs_acb_search(target2, h, Nsub,
                         &fcb_index_lo, &fcb_index_hi, &cb_gain, fcb_exc);
 
-        /* ---- Joint gain optimization (MLOW-style) ---- */
-        /* Try all combinations of quantized pitch gain × FCB gain dB steps.
-         * Pick the pair that minimizes weighted error:
-         *   err = ||target - gp*H*acb - gc*H*fcb||^2
-         * This is a brute-force search over the quantized gain space. */
+        /* ---- Joint gain optimization (MLOW 2-basis style) ---- */
+        /* Search over 8-entry (g0,g1) ACB codebook × FCB gain dB steps.
+         * Minimize: ||target - g0*H*basis0 - g1*H*basis1 - gc*H*fcb||^2 */
         float *fcb_filtered = (float *)malloc((size_t)Nsub * sizeof(float));
         tlcs_convolve(fcb_exc, h, Nsub, fcb_filtered);
 
-        /* Precompute inner products for fast gain search */
-        float aa = 0, af = 0, ff = 0, at = 0, ft = 0;
+        /* Precompute inner products for fast 3-gain search */
+        float a0a0 = 0, a1a1 = 0, ff = 0;
+        float a0a1 = 0, a0f = 0, a1f = 0;
+        float a0t = 0, a1t = 0, ft = 0;
         for (int i = 0; i < Nsub; i++) {
-            float a = acb_filtered[i], f = fcb_filtered[i], t = target[i];
-            aa += a * a;
-            af += a * f;
-            ff += f * f;
-            at += a * t;
-            ft += f * t;
+            float b0 = acb_filt0[i], b1 = acb_filt1[i];
+            float f = fcb_filtered[i], t = target[i];
+            a0a0 += b0 * b0;
+            a1a1 += b1 * b1;
+            ff   += f * f;
+            a0a1 += b0 * b1;
+            a0f  += b0 * f;
+            a1f  += b1 * f;
+            a0t  += b0 * t;
+            a1t  += b1 * t;
+            ft   += f * t;
         }
 
         int pg_idx = 0;
         int fcb_gain_idx = 0;
-        float q_pg = 0.0f, q_cg = 0.0f;
+        float q_g0 = 0.0f, q_g1 = 0.0f, q_cg = 0.0f;
         float best_err = 1e30f;
 
-        int n_pg_levels = 1 << TLCS_PITCH_GAIN_BITS;
-        for (int pi = 0; pi < n_pg_levels; pi++) {
-            float gp = tlcs_pitch_gain_dequantize(pi);
-            /* For this gp, optimal gc = (ft - gp*af) / (ff + 1e-10) */
-            float gc_opt = (ft - gp * af) / (ff + 1e-10f);
+        const float (*acb_cb)[2] = tlcs_acb_gain_codebook();
+        for (int pi = 0; pi < TLCS_ACB_GAIN_ENTRIES; pi++) {
+            float g0 = acb_cb[pi][0];
+            float g1 = acb_cb[pi][1];
+            /* Optimal gc for this (g0,g1):
+             * gc = (ft - g0*a0f - g1*a1f) / (ff + eps) */
+            float gc_opt = (ft - g0 * a0f - g1 * a1f) / (ff + 1e-10f);
             float gc_q;
             int gi = tlcs_fcbgain_quantize(gc_opt, 1, &gc_q);
-            /* Compute weighted error: tt - 2*gp*at - 2*gc*ft + gp^2*aa + 2*gp*gc*af + gc^2*ff */
-            float err = -2.0f * gp * at - 2.0f * gc_q * ft
-                      + gp * gp * aa + 2.0f * gp * gc_q * af + gc_q * gc_q * ff;
+            /* Weighted error (constant tt term omitted):
+             * err = g0^2*a0a0 + g1^2*a1a1 + gc^2*ff
+             *     + 2*g0*g1*a0a1 + 2*g0*gc*a0f + 2*g1*gc*a1f
+             *     - 2*g0*a0t - 2*g1*a1t - 2*gc*ft */
+            float err = g0*g0*a0a0 + g1*g1*a1a1 + gc_q*gc_q*ff
+                      + 2.0f*g0*g1*a0a1 + 2.0f*g0*gc_q*a0f + 2.0f*g1*gc_q*a1f
+                      - 2.0f*g0*a0t - 2.0f*g1*a1t - 2.0f*gc_q*ft;
             if (err < best_err) {
                 best_err = err;
                 pg_idx = pi;
                 fcb_gain_idx = gi;
-                q_pg = gp;
+                q_g0 = g0;
+                q_g1 = g1;
                 q_cg = gc_q;
             }
         }
@@ -411,7 +417,7 @@ int tlcs_encode(TlcsEncoder *enc, const int16_t *pcm,
         /* ---- Update excitation buffer ---- */
         float *total_exc = (float *)malloc((size_t)Nsub * sizeof(float));
         for (int i = 0; i < Nsub; i++) {
-            total_exc[i] = q_pg * acb_exc[i] + q_cg * fcb_exc[i];
+            total_exc[i] = q_g0 * acb_basis0[i] + q_g1 * acb_basis1[i] + q_cg * fcb_exc[i];
         }
 
         int n_buf = enc->exc_len;
@@ -458,13 +464,14 @@ int tlcs_encode(TlcsEncoder *enc, const int16_t *pcm,
         ol_pitch = int_lag;
 
         /* Free subframe allocations */
-        /* h freed below with other subframe allocations */
         free(h);
         free(zsr);
         free(target_unweighted);
         free(target);
-        free(acb_exc);
-        free(acb_filtered);
+        free(acb_basis0);
+        free(acb_basis1);
+        free(acb_filt0);
+        free(acb_filt1);
         free(target2);
         free(fcb_exc);
         free(total_exc);

@@ -164,6 +164,34 @@ float tlcs_pitch_gain_dequantize(int index)
 }
 
 /* ================================================================== */
+/* 2-basis ACB joint gain codebook (MLOW-style)                        */
+/* ================================================================== */
+
+static const float tlcs_acb_gain_cb[TLCS_ACB_GAIN_ENTRIES][2] = {
+    {0.0f, 0.0f},     /* silence */
+    {0.3f, 0.0f},     /* weak pitch, no neighbor */
+    {0.6f, 0.0f},     /* moderate pitch */
+    {0.9f, 0.0f},     /* strong pitch */
+    {0.6f, 0.15f},    /* pitch + neighbor smoothing */
+    {0.9f, 0.2f},     /* strong pitch + smoothing */
+    {1.1f, 0.0f},     /* very strong pitch */
+    {1.0f, 0.3f},     /* strong pitch + strong smoothing */
+};
+
+void tlcs_acb_gain_dequantize(int index, float *g0, float *g1)
+{
+    if (index < 0) index = 0;
+    if (index >= TLCS_ACB_GAIN_ENTRIES) index = TLCS_ACB_GAIN_ENTRIES - 1;
+    *g0 = tlcs_acb_gain_cb[index][0];
+    *g1 = tlcs_acb_gain_cb[index][1];
+}
+
+const float (*tlcs_acb_gain_codebook(void))[2]
+{
+    return tlcs_acb_gain_cb;
+}
+
+/* ================================================================== */
 /* FCB Gain — dB-stepped quantizer (SMPL-style)                        */
 /* ================================================================== */
 

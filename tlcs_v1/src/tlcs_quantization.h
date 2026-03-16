@@ -14,6 +14,12 @@ void tlcs_lsp_vq_dequantize(const int *indices, float *lsp_out);
 int tlcs_pitch_gain_quantize(float gain);
 float tlcs_pitch_gain_dequantize(int index);
 
+/* ---- 2-basis ACB joint gain codebook (MLOW-style) ------------------ */
+/* 8-entry codebook of (g0, g1) pairs, indexed by 3-bit pitch_gain_idx. */
+void tlcs_acb_gain_dequantize(int index, float *g0, float *g1);
+/* Returns all 8 entries for encoder search. */
+const float (*tlcs_acb_gain_codebook(void))[2];
+
 /* ---- FCB gain quantizer — dB-stepped (SMPL-style) ------------------ */
 /* Quantize weighted-domain FCB gain to 4-bit dB index.
  * voiced: use voiced dB table; !voiced: use unvoiced dB table.
