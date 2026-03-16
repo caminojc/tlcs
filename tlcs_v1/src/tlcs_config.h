@@ -75,13 +75,13 @@
 #define TLCS_PERC_MEL_FC_HZ     320.0f
 
 /* ── Harmonic postfilter ───────────────────────────────── */
-#define TLCS_HARM_POSTF_STRENGTH     0.4f
+#define TLCS_HARM_POSTF_STRENGTH     0.55f
 #define TLCS_HARM_POSTF_FB_STRENGTH  0.4734f
 #define TLCS_HARM_POSTF_CUTOFF_HZ    4000.0f
 
 /* ── Formant postfilter ────────────────────────────────── */
-#define TLCS_FORMANT_PF_GAMMA_NUM    0.60f
-#define TLCS_FORMANT_PF_GAMMA_DEN    0.75f
+#define TLCS_FORMANT_PF_GAMMA_NUM    0.65f
+#define TLCS_FORMANT_PF_GAMMA_DEN    0.80f
 #define TLCS_FORMANT_PF_TILT         0.30f
 
 /* ── Perceptual weighting filter ───────────────────────── */
