@@ -55,10 +55,6 @@ struct TlcsEncoder {
 
     /* Synthesis filter memory */
     float synth_mem[TLCS_LPC_ORDER];
-
-    /* Perceptual weighting filter W(z) memory (persists across subframes) */
-    float wgt_num_mem[TLCS_LPC_ORDER];
-    float wgt_den_mem[TLCS_LPC_ORDER];
 };
 
 /* ================================================================== */
@@ -297,25 +293,30 @@ int tlcs_encode(TlcsEncoder *enc, const int16_t *pcm,
             target_unweighted[i] = target_speech[i] - zsr[i];
         }
 
-        /* Apply perceptual weighting W(z) to target — state persists across subframes */
+        /* Apply perceptual weighting W(z) to target */
         float *target = (float *)malloc((size_t)Nsub * sizeof(float));
         {
+            float wnum_mem[TLCS_LPC_ORDER];
+            float wden_mem[TLCS_LPC_ORDER];
+            memset(wnum_mem, 0, sizeof(wnum_mem));
+            memset(wden_mem, 0, sizeof(wden_mem));
+
             for (int i = 0; i < Nsub; i++) {
                 /* FIR: A(z/g1) */
                 float val = target_unweighted[i];
                 for (int k = 0; k < P; k++) {
-                    val += lpc_wnum[k + 1] * enc->wgt_num_mem[k];
+                    val += lpc_wnum[k + 1] * wnum_mem[k];
                 }
-                for (int k = P - 1; k > 0; k--) enc->wgt_num_mem[k] = enc->wgt_num_mem[k - 1];
-                enc->wgt_num_mem[0] = target_unweighted[i];
+                for (int k = P - 1; k > 0; k--) wnum_mem[k] = wnum_mem[k - 1];
+                wnum_mem[0] = target_unweighted[i];
 
                 /* IIR: 1/A(z/g2) */
                 float out_val = val;
                 for (int k = 0; k < P; k++) {
-                    out_val -= lpc_wden[k + 1] * enc->wgt_den_mem[k];
+                    out_val -= lpc_wden[k + 1] * wden_mem[k];
                 }
-                for (int k = P - 1; k > 0; k--) enc->wgt_den_mem[k] = enc->wgt_den_mem[k - 1];
-                enc->wgt_den_mem[0] = out_val;
+                for (int k = P - 1; k > 0; k--) wden_mem[k] = wden_mem[k - 1];
+                wden_mem[0] = out_val;
 
                 target[i] = out_val;
             }
