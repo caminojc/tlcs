@@ -323,9 +323,8 @@ int tlcs_encode(TlcsEncoder *enc, const int16_t *pcm,
         }
 
         /* ---- Adaptive codebook (pitch) search ---- */
-        /* Wider closed-loop search: ±20 around OL estimate for better tracking */
-        int search_min = ol_pitch - 20;
-        int search_max = ol_pitch + 20;
+        int search_min = ol_pitch - 10;
+        int search_max = ol_pitch + 10;
         if (search_min < TLCS_PITCH_MIN_LAG) search_min = TLCS_PITCH_MIN_LAG;
         if (search_max > TLCS_PITCH_MAX_LAG) search_max = TLCS_PITCH_MAX_LAG;
 
