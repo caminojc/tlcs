@@ -105,22 +105,42 @@ function submitRatings() {
     }));
 
     const rated = result.filter(r => r.preference !== 'not_rated').length;
-    const summary = {};
-    result.forEach(r => { summary[r.preference] = (summary[r.preference] || 0) + 1; });
+    const counts = {A: 0, B: 0, same: 0};
+    result.forEach(r => { if (counts[r.preference] !== undefined) counts[r.preference]++; });
+
+    // Build compact table instead of full JSON
+    let table = `| # | Speaker | A File | B File | Preference |\n|--|--|--|--|--|\n`;
+    result.forEach(r => {
+        const a = r.a_file.replace('audio/','').replace('.wav','');
+        const b = r.b_file.replace('audio/','').replace('.wav','');
+        table += `| ${r.id} | ${r.speaker} | ${a} | ${b} | ${r.preference} |\n`;
+    });
 
     const title = encodeURIComponent(`AB ratings: ${name} (${rated}/${pairs.length})`);
     const body = encodeURIComponent(
         `## A/B Preference Ratings\n` +
         `**Rater:** ${name}\n` +
         `**Rated:** ${rated} / ${pairs.length}\n` +
-        `**Summary:** ${JSON.stringify(summary)}\n\n` +
-        `### Raw Data\n` +
-        `\`\`\`json\n${JSON.stringify(result, null, 2)}\n\`\`\`\n`
+        `**Summary:** A=${counts.A}, B=${counts.B}, Same=${counts.same}\n\n` +
+        table
     );
 
-    const url = `https://github.com/caminojc/tlcs/issues/new?title=${title}&body=${body}&labels=ab-ratings`;
-    window.open(url, '_blank');
+    const url = `https://github.com/caminojc/tlcs/issues/new?title=${title}&body=${body}`;
 
+    // Check URL length — if too long, fall back to clipboard
+    if (url.length > 8000) {
+        const text = JSON.stringify(result, null, 2);
+        navigator.clipboard.writeText(text).then(() => {
+            document.getElementById('submit-msg').style.display = 'block';
+            document.getElementById('submit-msg').innerHTML =
+                'URL too long for GitHub. Ratings copied to clipboard!<br>' +
+                'Please paste into a new issue at: ' +
+                '<a href="https://github.com/caminojc/tlcs/issues/new" target="_blank" style="color:#60a5fa">github.com/caminojc/tlcs/issues/new</a>';
+        });
+        return;
+    }
+
+    window.open(url, '_blank');
     document.getElementById('submit-msg').style.display = 'block';
     document.getElementById('submit-msg').textContent = 'Ratings submitted! Thank you, ' + name + '.';
 }
