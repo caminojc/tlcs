@@ -213,8 +213,13 @@ int tlcs_encode(TlcsEncoder *enc, const int16_t *pcm,
         }
         residual[n] = val;
     }
-    int ol_pitch = tlcs_pitch_open_loop(residual, N,
-                                        TLCS_PITCH_MIN_LAG, TLCS_PITCH_MAX_LAG);
+    /* Per-half OL pitch for better tracking across the frame */
+    int ol_pitch_sf[2];
+    ol_pitch_sf[0] = tlcs_pitch_open_loop(residual, N / 2,
+                                           TLCS_PITCH_MIN_LAG, TLCS_PITCH_MAX_LAG);
+    ol_pitch_sf[1] = tlcs_pitch_open_loop(residual + N / 2, N / 2,
+                                           TLCS_PITCH_MIN_LAG, TLCS_PITCH_MAX_LAG);
+    int ol_pitch = ol_pitch_sf[0];
 
     /* ---- 6. Subframe processing ---- */
     TlcsFrameData fd;
@@ -323,8 +328,8 @@ int tlcs_encode(TlcsEncoder *enc, const int16_t *pcm,
         }
 
         /* ---- Adaptive codebook (pitch) search ---- */
-        int search_min = ol_pitch - 10;
-        int search_max = ol_pitch + 10;
+        int search_min = ol_pitch_sf[sf] - 10;
+        int search_max = ol_pitch_sf[sf] + 10;
         if (search_min < TLCS_PITCH_MIN_LAG) search_min = TLCS_PITCH_MIN_LAG;
         if (search_max > TLCS_PITCH_MAX_LAG) search_max = TLCS_PITCH_MAX_LAG;
 
