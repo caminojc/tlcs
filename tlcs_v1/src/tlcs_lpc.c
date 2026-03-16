@@ -149,6 +149,85 @@ static float cheb_eval(const float *coef, int m, float x)
  */
 void tlcs_lpc_to_lsp(const float *lpc, int order, float *lsp_out)
 {
+    /* Build P, Q polynomials, deconvolve trivial roots, evaluate as Chebyshev. */
+    int m = order / 2;  /* 8 */
+    float a_ext[TLCS_LPC_ORDER + 2];
+    for (int i = 0; i <= order; i++) a_ext[i] = lpc[i];
+    a_ext[order + 1] = 0.0f;
+
+    float p_poly[TLCS_LPC_ORDER + 2], q_poly[TLCS_LPC_ORDER + 2];
+    for (int i = 0; i <= order + 1; i++) {
+        p_poly[i] = a_ext[i] + a_ext[order + 1 - i];
+        q_poly[i] = a_ext[i] - a_ext[order + 1 - i];
+    }
+
+    /* Deconvolve: P/(1+z^-1) and Q/(1-z^-1) */
+    float f1[TLCS_LPC_ORDER + 1], f2[TLCS_LPC_ORDER + 1];
+    f1[0] = p_poly[0];
+    for (int i = 1; i <= order; i++) f1[i] = p_poly[i] + f1[i - 1];
+    f2[0] = q_poly[0];
+    for (int i = 1; i <= order; i++) f2[i] = q_poly[i] + f2[i - 1];
+
+    /* Build Chebyshev coefficients from symmetric polynomial first half */
+    float c1[TLCS_LPC_ORDER / 2 + 1], c2[TLCS_LPC_ORDER / 2 + 1];
+    c1[0] = f1[m];
+    for (int k = 1; k <= m; k++) c1[k] = 2.0f * f1[m - k];
+    c2[0] = f2[m];
+    for (int k = 1; k <= m; k++) c2[k] = 2.0f * f2[m - k];
+
+    /* Find roots by grid search + bisection on Chebyshev polynomials */
+    const int GRID = 1024;
+    int nroots = 0;
+
+    float prev_f1 = cheb_eval(c1, m, 1.0f);
+    float prev_f2 = cheb_eval(c2, m, 1.0f);
+
+    for (int i = 1; i <= GRID && nroots < order; i++) {
+        float omega = 3.14159265f * (float)i / (float)GRID;
+        float x = cosf(omega);
+        float cur_f1 = cheb_eval(c1, m, x);
+        float cur_f2 = cheb_eval(c2, m, x);
+
+        if (prev_f1 * cur_f1 < 0.0f && nroots < order) {
+            float lo = 3.14159265f * (float)(i - 1) / (float)GRID;
+            float hi = omega;
+            for (int b = 0; b < 24; b++) {
+                float mid = 0.5f * (lo + hi);
+                float v = cheb_eval(c1, m, cosf(mid));
+                float vlo = cheb_eval(c1, m, cosf(lo));
+                if (v * vlo <= 0.0f) hi = mid; else lo = mid;
+            }
+            lsp_out[nroots++] = 0.5f * (lo + hi);
+        }
+        if (prev_f2 * cur_f2 < 0.0f && nroots < order) {
+            float lo = 3.14159265f * (float)(i - 1) / (float)GRID;
+            float hi = omega;
+            for (int b = 0; b < 24; b++) {
+                float mid = 0.5f * (lo + hi);
+                float v = cheb_eval(c2, m, cosf(mid));
+                float vlo = cheb_eval(c2, m, cosf(lo));
+                if (v * vlo <= 0.0f) hi = mid; else lo = mid;
+            }
+            lsp_out[nroots++] = 0.5f * (lo + hi);
+        }
+        prev_f1 = cur_f1;
+        prev_f2 = cur_f2;
+    }
+
+    /* Sort */
+    for (int i = 0; i < nroots - 1; i++)
+        for (int j = i + 1; j < nroots; j++)
+            if (lsp_out[j] < lsp_out[i]) {
+                float tmp = lsp_out[i]; lsp_out[i] = lsp_out[j]; lsp_out[j] = tmp;
+            }
+
+    if (nroots < order) {
+        for (int i = 0; i < order; i++)
+            lsp_out[i] = 3.14159265f * (float)(i + 1) / (float)(order + 1);
+    }
+    tlcs_lsp_stabilize(lsp_out, order, 0.005f);
+
+#if 0 /* OLD BROKEN CODE — kept for reference */
     /* Direct evaluation of P(omega) and Q(omega) on unit circle.
      * P(w) = 2*Re[A(e^jw) * e^{j(p+1)w/2}] = 2*cos((p+1)w/2) + 2*sum...
      * Simpler: P(w) = sum_{k=0}^{p+1} (a[k]+a[p+1-k]) * cos((k-(p+1)/2)*w)
@@ -246,6 +325,7 @@ void tlcs_lpc_to_lsp(const float *lpc, int order, float *lsp_out)
             lsp_out[i] = 3.14159265f * (float)(i + 1) / (float)(order + 1);
     }
     tlcs_lsp_stabilize(lsp_out, order, 0.005f);
+#endif /* OLD BROKEN CODE */
 }
 
 /* ================================================================== */
