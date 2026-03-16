@@ -75,7 +75,7 @@
 #define TLCS_PERC_MEL_FC_HZ     320.0f
 
 /* ── Harmonic postfilter ───────────────────────────────── */
-#define TLCS_HARM_POSTF_STRENGTH     0.0f
+#define TLCS_HARM_POSTF_STRENGTH     0.4f
 #define TLCS_HARM_POSTF_FB_STRENGTH  0.4734f
 #define TLCS_HARM_POSTF_CUTOFF_HZ    4000.0f
 
