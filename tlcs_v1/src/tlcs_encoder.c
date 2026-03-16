@@ -372,47 +372,51 @@ int tlcs_encode(TlcsEncoder *enc, const int16_t *pcm,
         float fcb_exc[TLCS_SUBFRAME_SIZE];
         tlcs_acb_search(target2, h, Nsub, &fcb_index, &cb_gain_weighted, fcb_exc);
 
-        /* Recompute gains in UNWEIGHTED domain for the decoder.
-         * The FCB search found optimal pulse positions in weighted domain,
-         * but the decoder synthesizes through 1/A(z) without weighting.
-         * Compute: gain = <unweighted_target, H_synth*c> / <H_synth*c, H_synth*c> */
+        /* ---- Recompute BOTH gains in UNWEIGHTED domain ---- */
+        /* The search found optimal pulse positions and pitch lag in the weighted
+         * domain. Now compute the gains the decoder needs: in the 1/A(z) domain.
+         * Joint optimization: minimize ||target_uw - gp*H*acb - gc*H*fcb||^2 */
         float cb_gain;
         {
-            float h_synth_only[TLCS_SUBFRAME_SIZE];
-            tlcs_lpc_impulse_response(lpc_sub, P, Nsub, h_synth_only);
+            float h_uw[TLCS_SUBFRAME_SIZE];
+            tlcs_lpc_impulse_response(lpc_sub, P, Nsub, h_uw);
 
-            /* Unweighted target = speech - zero-state response */
-            float acb_synth[TLCS_SUBFRAME_SIZE];
-            tlcs_convolve(acb_exc, h_synth_only, Nsub, acb_synth);
-            float tgt_uw[TLCS_SUBFRAME_SIZE];
+            /* Filter ACB and FCB through unweighted synthesis */
+            float acb_filt[TLCS_SUBFRAME_SIZE];
+            float fcb_filt[TLCS_SUBFRAME_SIZE];
+            tlcs_convolve(acb_exc, h_uw, Nsub, acb_filt);
+            tlcs_convolve(fcb_exc, h_uw, Nsub, fcb_filt);
+
+            /* Joint gain optimization (2×2 normal equations):
+             * [<a,a> <a,f>] [gp]   [<a,t>]
+             * [<f,a> <f,f>] [gc] = [<f,t>]
+             * where a=acb_filt, f=fcb_filt, t=target_unweighted */
+            float aa = 0, af = 0, ff = 0, at = 0, ft = 0;
             for (int i = 0; i < Nsub; i++) {
-                tgt_uw[i] = target_unweighted[i] - pitch_gain * acb_synth[i];
+                float a = acb_filt[i], f = fcb_filt[i], t = target_unweighted[i];
+                aa += a * a;
+                af += a * f;
+                ff += f * f;
+                at += a * t;
+                ft += f * t;
             }
 
-            float fcb_synth[TLCS_SUBFRAME_SIZE];
-            tlcs_convolve(fcb_exc, h_synth_only, Nsub, fcb_synth);
-            float num = 0, den = 0;
-            for (int i = 0; i < Nsub; i++) {
-                num += tgt_uw[i] * fcb_synth[i];
-                den += fcb_synth[i] * fcb_synth[i];
+            /* Solve 2×2 system */
+            float det = aa * ff - af * af;
+            if (fabsf(det) > 1e-10f) {
+                pitch_gain = (ff * at - af * ft) / det;
+                cb_gain = (aa * ft - af * at) / det;
+            } else {
+                /* Degenerate — fall back to independent gains */
+                pitch_gain = (aa > 1e-10f) ? (at / aa) : 0.0f;
+                cb_gain = (ff > 1e-10f) ? (ft / ff) : 0.0f;
             }
-            cb_gain = num / (den + 1e-10f);
-        }
 
-        /* Also recompute pitch gain in unweighted domain */
-        {
-            float h_synth_only[TLCS_SUBFRAME_SIZE];
-            tlcs_lpc_impulse_response(lpc_sub, P, Nsub, h_synth_only);
-            float acb_synth[TLCS_SUBFRAME_SIZE];
-            tlcs_convolve(acb_exc, h_synth_only, Nsub, acb_synth);
-            float num = 0, den = 0;
-            for (int i = 0; i < Nsub; i++) {
-                num += target_unweighted[i] * acb_synth[i];
-                den += acb_synth[i] * acb_synth[i];
-            }
-            pitch_gain = num / (den + 1e-10f);
+            /* Clamp */
             if (pitch_gain < 0.0f) pitch_gain = 0.0f;
             if (pitch_gain > 1.2f) pitch_gain = 1.2f;
+            if (cb_gain < -2.0f) cb_gain = -2.0f;
+            if (cb_gain > 2.0f) cb_gain = 2.0f;
         }
 
         /* ---- Gain quantization ---- */

@@ -218,23 +218,13 @@ void tlcs_acb_search(const float *target, const float *h,
     /* Compute overall gain: g = <target, H*c> / <H*c, H*c> */
     filter_exc(excitation, h, N, filtered);
     float corr_total = 0.0f, energy_total = 0.0f;
-    float target_energy = 0.0f;
     for (int i = 0; i < N; i++) {
         corr_total += target[i] * filtered[i];
         energy_total += filtered[i] * filtered[i];
-        target_energy += target[i] * target[i];
     }
     float gain = corr_total / (energy_total + 1e-10f);
-
-    /* Energy compensation: with only 2 pulses, the MSE-optimal gain
-     * underestimates the needed energy. Scale up to match target RMS.
-     * This trades MSE for perceptual energy match. */
-    if (energy_total > 1e-10f && target_energy > 1e-10f) {
-        float synth_energy = gain * gain * energy_total;
-        float energy_ratio = sqrtf(target_energy / (synth_energy + 1e-10f));
-        /* Blend: 70% energy-matched, 30% MSE-optimal */
-        gain *= (0.3f + 0.7f * energy_ratio);
-    }
+    /* MSE-optimal gain in whatever domain the caller provides.
+     * Domain conversion (weighted→unweighted) done in the encoder. */
 
     /* Pack index and output */
     encode_index(pulse_pos, pulse_sign, TLCS_ACB_NUM_PULSES, out_index);
