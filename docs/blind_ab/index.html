@@ -145,10 +145,16 @@ function submitRatings() {
     document.getElementById('submit-msg').textContent = 'Ratings submitted! Thank you, ' + name + '.';
 }
 
-// Restore saved ratings
-const saved = localStorage.getItem('tlc_ab_ratings');
-if (saved) {
-    ratings = JSON.parse(saved);
+// Clear old ratings when pairs change (version key)
+const PAIRS_VERSION = 'v2';  // bump this when re-randomizing
+const savedVersion = localStorage.getItem('tlc_ab_version');
+if (savedVersion !== PAIRS_VERSION) {
+    localStorage.removeItem('tlc_ab_ratings');
+    localStorage.setItem('tlc_ab_version', PAIRS_VERSION);
+    ratings = {};
+} else {
+    const saved = localStorage.getItem('tlc_ab_ratings');
+    if (saved) ratings = JSON.parse(saved);
 }
 
 init().then(() => {
