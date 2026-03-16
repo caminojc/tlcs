@@ -4,15 +4,19 @@
  * Signal flow per frame:
  * 1. Unpack bitstream
  * 2. Dequantize LSPs
- * 3. Per subframe:
+ * 3. Per subframe (2 x 160 samples):
  *    a. Interpolate LSP -> LPC
  *    b. Dequantize gains
  *    c. Build adaptive codebook excitation (pitch)
- *    d. Build fixed codebook excitation (algebraic)
+ *    d. Build fixed codebook excitation (algebraic, 8 pulses)
  *    e. Combine: exc = gp * acb + gc * fcb
  *    f. Synthesis filter: 1/A(z)
  * 4. Harmonic postfilter -> formant postfilter
  * 5. De-emphasis
+ *
+ * Pitch decoding:
+ *   SF0: full_lag = pitch_lag_idx + PITCH_MIN_LAG, frac = idx * 0.5
+ *   SF1: delta decoding: lag = sf0_lag + (pitch_lag_idx - 8), frac = idx * 0.5
  */
 #include "tlcs_config.h"
 
@@ -147,6 +151,8 @@ int tlcs_decode(TlcsDecoder *dec, const uint8_t *buf, int buf_size,
     float synth_mem[TLCS_LPC_ORDER];
     memcpy(synth_mem, dec->synth_mem, P * sizeof(float));
 
+    int sf0_int_lag = 0;  /* saved for SF1 delta decoding */
+
     for (int sf = 0; sf < TLCS_NUM_SUBFRAMES; sf++) {
         const TlcsSubframeData *sd = &fd.sf[sf];
 
@@ -160,8 +166,21 @@ int tlcs_decode(TlcsDecoder *dec, const uint8_t *buf, int buf_size,
         tlcs_lsp_to_lpc(lsp_interp, P, lpc_sub);
 
         /* Decode pitch lag */
-        int int_lag = sd->pitch_lag_idx + TLCS_PITCH_MIN_LAG;
-        float frac = (float)sd->pitch_frac_idx / 3.0f;
+        int int_lag;
+        if (sf == 0) {
+            /* SF0: full lag decoding */
+            int_lag = sd->pitch_lag_idx + TLCS_PITCH_MIN_LAG;
+            sf0_int_lag = int_lag;
+        } else {
+            /* SF1: delta lag decoding: lag = sf0_lag + (index - 8) */
+            int delta = sd->pitch_lag_idx - 8;
+            int_lag = sf0_int_lag + delta;
+            /* Clamp to valid range */
+            if (int_lag < TLCS_PITCH_MIN_LAG) int_lag = TLCS_PITCH_MIN_LAG;
+            if (int_lag > TLCS_PITCH_MAX_LAG) int_lag = TLCS_PITCH_MAX_LAG;
+        }
+
+        float frac = (float)sd->pitch_frac_idx * 0.5f;  /* 1-bit: 0 or 0.5 */
         float pitch_lag = (float)int_lag + frac;
 
         /* Dequantize gains — dB-stepped for FCB, scalar for pitch */
@@ -169,7 +188,7 @@ int tlcs_decode(TlcsDecoder *dec, const uint8_t *buf, int buf_size,
         float q_cg = tlcs_fcbgain_dequantize(sd->gain_index, 1 /*voiced*/);
 
         /* Build adaptive codebook excitation */
-        float acb_exc[TLCS_SUBFRAME_SIZE];
+        float *acb_exc = (float *)malloc((size_t)Nsub * sizeof(float));
         tlcs_pitch_build_acb(dec->exc_buf, dec->exc_len,
                              pitch_lag, Nsub, acb_exc);
 
@@ -183,18 +202,17 @@ int tlcs_decode(TlcsDecoder *dec, const uint8_t *buf, int buf_size,
             }
         }
 
-        /* Build fixed codebook excitation */
-        float fcb_exc[TLCS_SUBFRAME_SIZE];
-        tlcs_acb_decode(sd->fcb_index, Nsub, fcb_exc);
+        /* Build fixed codebook excitation (8 pulses, split index) */
+        float *fcb_exc = (float *)malloc((size_t)Nsub * sizeof(float));
+        tlcs_acb_decode(sd->fcb_index_lo, sd->fcb_index_hi, Nsub, fcb_exc);
 
         /* Combine excitations */
-        float total_exc[TLCS_SUBFRAME_SIZE];
+        float *total_exc = (float *)malloc((size_t)Nsub * sizeof(float));
         for (int i = 0; i < Nsub; i++) {
             total_exc[i] = q_pg * acb_exc[i] + q_cg * fcb_exc[i];
         }
 
         /* ---- Shaped noise fill ---- */
-        /* Measure excitation energy and add shaped noise to fill gaps */
         {
             float exc_energy = 0.0f;
             for (int i = 0; i < Nsub; i++) {
@@ -202,24 +220,17 @@ int tlcs_decode(TlcsDecoder *dec, const uint8_t *buf, int buf_size,
             }
             exc_energy /= (float)Nsub;
 
-            /* Determine voiced/unvoiced based on pitch gain */
             float noise_gain = (q_pg > 0.5f) ? TLCS_NOISE_V_GAIN : TLCS_NOISE_UV_GAIN;
-
-            /* Scale noise inversely with excitation density */
-            /* Higher pitch gain = more periodic = less noise needed */
             float noise_scale = noise_gain * (1.0f - q_pg * 0.7f);
             if (noise_scale < 0.0f) noise_scale = 0.0f;
 
-            /* Generate white noise and shape through 2nd-order MA from LPC */
-            float noise_buf[TLCS_SUBFRAME_SIZE];
+            float *noise_buf = (float *)malloc((size_t)Nsub * sizeof(float));
             static unsigned int noise_seed = 12345;
             float noise_energy = 0.0f;
             for (int i = 0; i < Nsub; i++) {
-                /* Simple LCG noise generator */
                 noise_seed = noise_seed * 1664525u + 1013904223u;
                 float white = ((float)(int)(noise_seed >> 1) / (float)0x3FFFFFFF) - 1.0f;
 
-                /* Shape through simplified LPC (2nd-order MA for coloring) */
                 float shaped = white;
                 if (i >= 1) shaped -= 0.5f * lpc_sub[1] * noise_buf[i - 1];
                 if (i >= 2) shaped -= 0.3f * lpc_sub[2] * noise_buf[i - 2];
@@ -227,13 +238,13 @@ int tlcs_decode(TlcsDecoder *dec, const uint8_t *buf, int buf_size,
                 noise_energy += shaped * shaped;
             }
 
-            /* Normalize noise energy to match excitation level */
             if (noise_energy > 1e-10f && exc_energy > 1e-10f) {
                 float norm = sqrtf(exc_energy / (noise_energy / (float)Nsub));
                 for (int i = 0; i < Nsub; i++) {
                     total_exc[i] += noise_scale * norm * noise_buf[i];
                 }
             }
+            free(noise_buf);
         }
 
         /* Update excitation buffer */
@@ -243,20 +254,27 @@ int tlcs_decode(TlcsDecoder *dec, const uint8_t *buf, int buf_size,
         memcpy(dec->exc_buf + n_buf - Nsub, total_exc, Nsub * sizeof(float));
 
         /* Synthesis filter */
-        float speech[TLCS_SUBFRAME_SIZE];
+        float *speech = (float *)malloc((size_t)Nsub * sizeof(float));
         tlcs_lpc_synthesis(total_exc, Nsub, lpc_sub, P, synth_mem, speech);
 
         /* Harmonic postfilter */
-        float harm_out[TLCS_SUBFRAME_SIZE];
+        float *harm_out = (float *)malloc((size_t)Nsub * sizeof(float));
         tlcs_harmonic_postfilter(&dec->pf, speech, Nsub,
                                  (int)roundf(pitch_lag), harm_out);
 
         /* Formant postfilter */
-        float pf_out[TLCS_SUBFRAME_SIZE];
+        float *pf_out = (float *)malloc((size_t)Nsub * sizeof(float));
         tlcs_formant_postfilter(&dec->pf, harm_out, Nsub,
                                 lpc_sub, P, pf_out);
 
         memcpy(&output[sf * Nsub], pf_out, Nsub * sizeof(float));
+
+        free(acb_exc);
+        free(fcb_exc);
+        free(total_exc);
+        free(speech);
+        free(harm_out);
+        free(pf_out);
     }
 
     /* ---- 4. De-emphasis ---- */

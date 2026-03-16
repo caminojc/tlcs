@@ -3,7 +3,13 @@
  *
  * BitWriter: accumulates bits MSB-first into a byte buffer.
  * BitReader: reads bits MSB-first from a byte buffer.
- * Frame packing: LSP(32) + 4 * [pitch(14) + FCB(12) + gain(6)] = 160 bits = 20 bytes.
+ *
+ * Frame packing (160 bits = 20 bytes):
+ *   LSP: 4 x 8 = 32 bits
+ *   SF0: full_lag(7) + frac(1) + pgain(3) + fcb_lo(24) + fcb_hi(24) + gain(4) = 63 bits
+ *   SF1: delta_lag(4) + frac(1) + pgain(3) + fcb_lo(24) + fcb_hi(24) + gain(4) = 60 bits
+ *   Spare: 5 bits (written as zero)
+ *   Total: 32 + 63 + 60 + 5 = 160 bits = 20 bytes
  */
 #include "tlcs_config.h"
 #include "tlcs_bitstream.h"
@@ -82,14 +88,10 @@ int tlcs_br_read(TlcsBitReader *br, int num_bits)
  * Bit layout per frame (160 bits = 20 bytes):
  *
  *   LSP: 4 splits x 8 bits = 32 bits
- *   Per subframe (x4):
- *     pitch_lag_idx:  8 bits
- *     pitch_frac_idx: 2 bits
- *     pitch_gain_idx: 4 bits
- *     fcb_index:     12 bits
- *     gain_index:     6 bits
- *     subtotal:      32 bits
- *   Total: 32 + 4*32 = 160 bits = 20 bytes
+ *   SF0: full_lag(7) + frac(1) + pgain(3) + fcb_lo(24) + fcb_hi(24) + gain(4) = 63 bits
+ *   SF1: delta_lag(4) + frac(1) + pgain(3) + fcb_lo(24) + fcb_hi(24) + gain(4) = 60 bits
+ *   Spare: 5 bits (zero)
+ *   Total: 32 + 63 + 60 + 5 = 160 bits = 20 bytes
  */
 
 int tlcs_frame_pack(const TlcsFrameData *fd, uint8_t *buf, int buf_size)
@@ -99,20 +101,35 @@ int tlcs_frame_pack(const TlcsFrameData *fd, uint8_t *buf, int buf_size)
     TlcsBitWriter bw;
     tlcs_bw_init(&bw, buf, buf_size);
 
-    /* LSP indices: 4 x 8 bits */
+    /* LSP indices: 4 x 8 bits = 32 */
     for (int s = 0; s < TLCS_LSP_NUM_SPLITS; s++) {
         tlcs_bw_write(&bw, fd->lsp_indices[s], TLCS_LSP_CB_BITS);
     }
 
-    /* Subframes */
-    for (int sf = 0; sf < TLCS_NUM_SUBFRAMES; sf++) {
-        const TlcsSubframeData *sd = &fd->sf[sf];
-        tlcs_bw_write(&bw, sd->pitch_lag_idx,  TLCS_PITCH_LAG_BITS);
-        tlcs_bw_write(&bw, sd->pitch_frac_idx, TLCS_PITCH_FRAC_BITS);
-        tlcs_bw_write(&bw, sd->pitch_gain_idx, TLCS_PITCH_GAIN_BITS);
-        tlcs_bw_write(&bw, sd->fcb_index,      TLCS_ACB_BITS_PER_SUB);
-        tlcs_bw_write(&bw, sd->gain_index,     TLCS_GAIN_BITS_PER_SUB);
+    /* SF0: full lag(7) + frac(1) + pgain(3) + fcb_lo(24) + fcb_hi(24) + gain(4) = 63 */
+    {
+        const TlcsSubframeData *sd = &fd->sf[0];
+        tlcs_bw_write(&bw, sd->pitch_lag_idx,  TLCS_PITCH_LAG_BITS);   /* 7 */
+        tlcs_bw_write(&bw, sd->pitch_frac_idx, TLCS_PITCH_FRAC_BITS);  /* 1 */
+        tlcs_bw_write(&bw, sd->pitch_gain_idx, TLCS_PITCH_GAIN_BITS);  /* 3 */
+        tlcs_bw_write(&bw, sd->fcb_index_lo, 24);                      /* 24 */
+        tlcs_bw_write(&bw, sd->fcb_index_hi, 24);                      /* 24 */
+        tlcs_bw_write(&bw, sd->gain_index,   TLCS_FCB_GAIN_BITS);      /* 4 */
     }
+
+    /* SF1: delta_lag(4) + frac(1) + pgain(3) + fcb_lo(24) + fcb_hi(24) + gain(4) = 60 */
+    {
+        const TlcsSubframeData *sd = &fd->sf[1];
+        tlcs_bw_write(&bw, sd->pitch_lag_idx,  TLCS_PITCH_DELTA_BITS); /* 4 */
+        tlcs_bw_write(&bw, sd->pitch_frac_idx, TLCS_PITCH_FRAC_BITS);  /* 1 */
+        tlcs_bw_write(&bw, sd->pitch_gain_idx, TLCS_PITCH_GAIN_BITS);  /* 3 */
+        tlcs_bw_write(&bw, sd->fcb_index_lo, 24);                      /* 24 */
+        tlcs_bw_write(&bw, sd->fcb_index_hi, 24);                      /* 24 */
+        tlcs_bw_write(&bw, sd->gain_index,   TLCS_FCB_GAIN_BITS);      /* 4 */
+    }
+
+    /* Spare: 5 bits zero */
+    tlcs_bw_write(&bw, 0, TLCS_SPARE_BITS);
 
     return tlcs_bw_bytes_written(&bw);
 }
@@ -129,15 +146,29 @@ int tlcs_frame_unpack(const uint8_t *buf, int buf_size, TlcsFrameData *fd)
         fd->lsp_indices[s] = tlcs_br_read(&br, TLCS_LSP_CB_BITS);
     }
 
-    /* Subframes */
-    for (int sf = 0; sf < TLCS_NUM_SUBFRAMES; sf++) {
-        TlcsSubframeData *sd = &fd->sf[sf];
+    /* SF0: full lag(7) + frac(1) + pgain(3) + fcb(48) + gain(4) */
+    {
+        TlcsSubframeData *sd = &fd->sf[0];
         sd->pitch_lag_idx  = tlcs_br_read(&br, TLCS_PITCH_LAG_BITS);
         sd->pitch_frac_idx = tlcs_br_read(&br, TLCS_PITCH_FRAC_BITS);
         sd->pitch_gain_idx = tlcs_br_read(&br, TLCS_PITCH_GAIN_BITS);
-        sd->fcb_index      = tlcs_br_read(&br, TLCS_ACB_BITS_PER_SUB);
-        sd->gain_index     = tlcs_br_read(&br, TLCS_GAIN_BITS_PER_SUB);
+        sd->fcb_index_lo   = tlcs_br_read(&br, 24);
+        sd->fcb_index_hi   = tlcs_br_read(&br, 24);
+        sd->gain_index     = tlcs_br_read(&br, TLCS_FCB_GAIN_BITS);
     }
+
+    /* SF1: delta_lag(4) + frac(1) + pgain(3) + fcb(48) + gain(4) */
+    {
+        TlcsSubframeData *sd = &fd->sf[1];
+        sd->pitch_lag_idx  = tlcs_br_read(&br, TLCS_PITCH_DELTA_BITS);
+        sd->pitch_frac_idx = tlcs_br_read(&br, TLCS_PITCH_FRAC_BITS);
+        sd->pitch_gain_idx = tlcs_br_read(&br, TLCS_PITCH_GAIN_BITS);
+        sd->fcb_index_lo   = tlcs_br_read(&br, 24);
+        sd->fcb_index_hi   = tlcs_br_read(&br, 24);
+        sd->gain_index     = tlcs_br_read(&br, TLCS_FCB_GAIN_BITS);
+    }
+
+    /* Skip spare bits (don't need to read) */
 
     return TLCS_OK;
 }

@@ -28,16 +28,17 @@ int  tlcs_br_read(TlcsBitReader *br, int num_bits);
 
 /* ---- Frame-level subframe data ------------------------------------- */
 typedef struct {
-    int pitch_lag_idx;   /* 8 bits */
-    int pitch_frac_idx;  /* 2 bits */
-    int pitch_gain_idx;  /* 4 bits */
-    int fcb_index;       /* 12 bits */
-    int gain_index;      /* 6 bits */
+    int pitch_lag_idx;   /* SF0: 7-bit full lag; SF1: 4-bit delta lag */
+    int pitch_frac_idx;  /* 1 bit (half-sample) */
+    int pitch_gain_idx;  /* 3 bits */
+    int fcb_index_lo;    /* lower 24 bits of 48-bit FCB index */
+    int fcb_index_hi;    /* upper 24 bits of 48-bit FCB index */
+    int gain_index;      /* 4 bits dB-stepped FCB gain */
 } TlcsSubframeData;
 
 typedef struct {
     int lsp_indices[TLCS_LSP_NUM_SPLITS];         /* 4 x 8 = 32 bits */
-    TlcsSubframeData sf[TLCS_NUM_SUBFRAMES];      /* 4 x 32 = 128 bits */
+    TlcsSubframeData sf[TLCS_NUM_SUBFRAMES];      /* 2 subframes */
 } TlcsFrameData;
 
 /* Pack a TlcsFrameData into buf (must be >= TLCS_BYTES_PER_FRAME).

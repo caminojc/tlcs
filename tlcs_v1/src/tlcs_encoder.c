@@ -4,13 +4,17 @@
  * Signal flow per frame:
  * 1. HP filter (2nd-order Butterworth) + pre-emphasis
  * 2. LPC analysis -> LSP -> quantize
- * 3. Per subframe:
+ * 3. Per subframe (2 x 160 samples):
  *    a. Interpolate LSP -> LPC
  *    b. Open/closed-loop pitch search -> ACB
- *    c. Algebraic codebook search
+ *    c. Algebraic codebook search (8 pulses)
  *    d. Gain quantization
  *    e. Update excitation memory
  * 4. Pack bitstream (20 bytes)
+ *
+ * Pitch encoding:
+ *   SF0: 7-bit full lag + 1-bit frac + 3-bit gain = 11 bits
+ *   SF1: 4-bit delta lag (±8) + 1-bit frac + 3-bit gain = 8 bits
  */
 #include "tlcs_config.h"
 
@@ -222,6 +226,8 @@ int tlcs_encode(TlcsEncoder *enc, const int16_t *pcm,
     float synth_mem[TLCS_LPC_ORDER];
     memcpy(synth_mem, enc->synth_mem, P * sizeof(float));
 
+    int sf0_int_lag = 0;  /* saved for SF1 delta encoding */
+
     for (int sf = 0; sf < TLCS_NUM_SUBFRAMES; sf++) {
         int sf_start = sf * Nsub;
         const float *target_speech = &pe_frame[sf_start];
@@ -236,7 +242,6 @@ int tlcs_encode(TlcsEncoder *enc, const int16_t *pcm,
         tlcs_lsp_to_lpc(lsp_interp, P, lpc_sub);
 
         /* ---- Perceptual weighting filter W(z) = A(z/g1) / A(z/g2) ---- */
-        /* Compute weighted LPC coefficients for numerator and denominator */
         float lpc_wnum[TLCS_LPC_ORDER + 1]; /* A(z/gamma1) */
         float lpc_wden[TLCS_LPC_ORDER + 1]; /* A(z/gamma2) */
         lpc_wnum[0] = 1.0f;
@@ -252,18 +257,12 @@ int tlcs_encode(TlcsEncoder *enc, const int16_t *pcm,
             }
         }
 
-        /* Impulse response of W(z)/A(z) = A(z/g1) / (A(z) * A(z/g2))
-         * For analysis-by-synthesis, we need h = impulse response of
-         * W(z) * 1/A(z) which shapes the synthesis through the
-         * perceptual weighting filter.
-         * Compute as: impulse response of 1/A(z) filtered through W(z).
-         */
-        /* First: impulse response of 1/A(z) */
-        float h_synth[TLCS_SUBFRAME_SIZE];
+        /* Impulse response of 1/A(z) */
+        float *h_synth = (float *)malloc((size_t)Nsub * sizeof(float));
         tlcs_lpc_impulse_response(lpc_sub, P, Nsub, h_synth);
 
         /* Apply W(z) = A(z/g1) / A(z/g2) to h_synth to get weighted IR */
-        float h[TLCS_SUBFRAME_SIZE];
+        float *h = (float *)malloc((size_t)Nsub * sizeof(float));
         {
             float wnum_mem[TLCS_LPC_ORDER];
             float wden_mem[TLCS_LPC_ORDER];
@@ -293,17 +292,17 @@ int tlcs_encode(TlcsEncoder *enc, const int16_t *pcm,
         }
 
         /* Zero-state response (ringing from previous subframe) */
-        float zsr[TLCS_SUBFRAME_SIZE];
+        float *zsr = (float *)malloc((size_t)Nsub * sizeof(float));
         tlcs_lpc_zero_state_response(lpc_sub, P, synth_mem, Nsub, zsr);
 
         /* Target = speech - ringing */
-        float target_unweighted[TLCS_SUBFRAME_SIZE];
+        float *target_unweighted = (float *)malloc((size_t)Nsub * sizeof(float));
         for (int i = 0; i < Nsub; i++) {
             target_unweighted[i] = target_speech[i] - zsr[i];
         }
 
         /* Apply perceptual weighting W(z) to target */
-        float target[TLCS_SUBFRAME_SIZE];
+        float *target = (float *)malloc((size_t)Nsub * sizeof(float));
         {
             float wnum_mem[TLCS_LPC_ORDER];
             float wden_mem[TLCS_LPC_ORDER];
@@ -343,7 +342,7 @@ int tlcs_encode(TlcsEncoder *enc, const int16_t *pcm,
                                &pitch_lag, &pitch_gain);
 
         /* Build ACB excitation */
-        float acb_exc[TLCS_SUBFRAME_SIZE];
+        float *acb_exc = (float *)malloc((size_t)Nsub * sizeof(float));
         tlcs_pitch_build_acb(enc->exc_buf, enc->exc_len,
                              pitch_lag, Nsub, acb_exc);
 
@@ -358,19 +357,20 @@ int tlcs_encode(TlcsEncoder *enc, const int16_t *pcm,
         }
 
         /* Remove ACB contribution from target */
-        float acb_filtered[TLCS_SUBFRAME_SIZE];
+        float *acb_filtered = (float *)malloc((size_t)Nsub * sizeof(float));
         tlcs_convolve(acb_exc, h, Nsub, acb_filtered);
 
-        float target2[TLCS_SUBFRAME_SIZE];
+        float *target2 = (float *)malloc((size_t)Nsub * sizeof(float));
         for (int i = 0; i < Nsub; i++) {
             target2[i] = target[i] - pitch_gain * acb_filtered[i];
         }
 
         /* ---- Algebraic codebook search (weighted domain, Phi-based) ---- */
-        int fcb_index;
-        float cb_gain;  /* weighted-domain gain from Phi search */
-        float fcb_exc[TLCS_SUBFRAME_SIZE];
-        tlcs_acb_search(target2, h, Nsub, &fcb_index, &cb_gain, fcb_exc);
+        int fcb_index_lo, fcb_index_hi;
+        float cb_gain;
+        float *fcb_exc = (float *)malloc((size_t)Nsub * sizeof(float));
+        tlcs_acb_search(target2, h, Nsub,
+                        &fcb_index_lo, &fcb_index_hi, &cb_gain, fcb_exc);
 
         /* ---- Gain quantization — dB-stepped (stays in weighted domain) ---- */
         /* Pitch gain: scalar quantize [0, 1.2] */
@@ -383,10 +383,8 @@ int tlcs_encode(TlcsEncoder *enc, const int16_t *pcm,
         float q_cg;
         int fcb_gain_idx = tlcs_fcbgain_quantize(cb_gain, 1 /*voiced*/, &q_cg);
 
-        /* Gains quantized */
-
         /* ---- Update excitation buffer ---- */
-        float total_exc[TLCS_SUBFRAME_SIZE];
+        float *total_exc = (float *)malloc((size_t)Nsub * sizeof(float));
         for (int i = 0; i < Nsub; i++) {
             total_exc[i] = q_pg * acb_exc[i] + q_cg * fcb_exc[i];
         }
@@ -397,29 +395,55 @@ int tlcs_encode(TlcsEncoder *enc, const int16_t *pcm,
         memcpy(enc->exc_buf + n_buf - Nsub, total_exc, Nsub * sizeof(float));
 
         /* Update synthesis filter state */
-        float synth_out[TLCS_SUBFRAME_SIZE];
+        float *synth_out = (float *)malloc((size_t)Nsub * sizeof(float));
         tlcs_lpc_synthesis(total_exc, Nsub, lpc_sub, P, synth_mem, synth_out);
 
         /* ---- Encode pitch lag ---- */
         int int_lag = (int)roundf(pitch_lag);
         float frac_part = pitch_lag - floorf(pitch_lag);
-        int lag_index = int_lag - TLCS_PITCH_MIN_LAG;
-        if (lag_index < 0) lag_index = 0;
-        if (lag_index > TLCS_PITCH_MAX_LAG - TLCS_PITCH_MIN_LAG)
-            lag_index = TLCS_PITCH_MAX_LAG - TLCS_PITCH_MIN_LAG;
-
-        int frac_index = (int)roundf(frac_part * 3.0f) % 3;
+        int frac_index = (frac_part >= 0.5f) ? 1 : 0;  /* 1-bit half-sample */
 
         /* Pack subframe data */
         TlcsSubframeData *sd = &fd.sf[sf];
-        sd->pitch_lag_idx  = lag_index;
+
+        if (sf == 0) {
+            /* SF0: full 7-bit lag encoding */
+            int lag_index = int_lag - TLCS_PITCH_MIN_LAG;
+            if (lag_index < 0) lag_index = 0;
+            if (lag_index > (1 << TLCS_PITCH_LAG_BITS) - 1)
+                lag_index = (1 << TLCS_PITCH_LAG_BITS) - 1;
+            sd->pitch_lag_idx = lag_index;
+            sf0_int_lag = int_lag;
+        } else {
+            /* SF1: 4-bit delta lag encoding (±8 around SF0) */
+            int delta = int_lag - sf0_int_lag;
+            if (delta < -8) delta = -8;
+            if (delta > 7) delta = 7;
+            /* Encode as unsigned: delta + 8 -> range [0, 15] */
+            sd->pitch_lag_idx = delta + 8;
+        }
+
         sd->pitch_frac_idx = frac_index;
         sd->pitch_gain_idx = pg_idx;
-        sd->fcb_index      = fcb_index;
+        sd->fcb_index_lo   = fcb_index_lo;
+        sd->fcb_index_hi   = fcb_index_hi;
         sd->gain_index     = fcb_gain_idx;
 
         /* Update OL pitch for next subframe */
         ol_pitch = int_lag;
+
+        /* Free subframe allocations */
+        free(h_synth);
+        free(h);
+        free(zsr);
+        free(target_unweighted);
+        free(target);
+        free(acb_exc);
+        free(acb_filtered);
+        free(target2);
+        free(fcb_exc);
+        free(total_exc);
+        free(synth_out);
     }
 
     /* Save state */
