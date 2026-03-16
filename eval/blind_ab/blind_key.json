@@ -1,168 +1,24 @@
 [
   {
-    "id": 15,
-    "speaker": "908-157963-0014",
-    "a_file": "audio/smpl_8k_908-157963-0014.wav",
-    "b_file": "audio/celp_96k_908-157963-0014.wav",
-    "orig_file": "audio/original_908-157963-0014.wav",
-    "a_config": "smpl_8k",
-    "b_config": "celp_96k"
-  },
-  {
     "id": 0,
-    "speaker": "908-157963-0014",
-    "a_file": "audio/celp_96k_908-157963-0014.wav",
-    "b_file": "audio/tcx_96k_908-157963-0014.wav",
-    "orig_file": "audio/original_908-157963-0014.wav",
+    "speaker": "1580-141083-0007",
+    "a_file": "audio/celp_96k_1580-141083-0007.wav",
+    "b_file": "audio/tcx_96k_1580-141083-0007.wav",
+    "orig_file": "audio/original_1580-141083-0007.wav",
     "a_config": "celp_96k",
     "b_config": "tcx_96k"
   },
   {
-    "id": 13,
-    "speaker": "1580-141083-0007",
-    "a_file": "audio/tcx_96k_1580-141083-0007.wav",
-    "b_file": "audio/smpl_8k_1580-141083-0007.wav",
-    "orig_file": "audio/original_1580-141083-0007.wav",
-    "a_config": "tcx_96k",
-    "b_config": "smpl_8k"
-  },
-  {
-    "id": 29,
+    "id": 1,
     "speaker": "2830-3980-0013",
-    "a_file": "audio/smpl_5k_2830-3980-0013.wav",
+    "a_file": "audio/tcx_5k_2830-3980-0013.wav",
     "b_file": "audio/celp_5k_2830-3980-0013.wav",
     "orig_file": "audio/original_2830-3980-0013.wav",
-    "a_config": "smpl_5k",
+    "a_config": "tcx_5k",
     "b_config": "celp_5k"
   },
   {
-    "id": 34,
-    "speaker": "2830-3980-0013",
-    "a_file": "audio/tcx_96k_2830-3980-0013.wav",
-    "b_file": "audio/evs_96k_2830-3980-0013.wav",
-    "orig_file": "audio/original_2830-3980-0013.wav",
-    "a_config": "tcx_96k",
-    "b_config": "evs_96k"
-  },
-  {
-    "id": 27,
-    "speaker": "5639-40744-0005",
-    "a_file": "audio/celp_5k_5639-40744-0005.wav",
-    "b_file": "audio/smpl_5k_5639-40744-0005.wav",
-    "orig_file": "audio/original_5639-40744-0005.wav",
-    "a_config": "celp_5k",
-    "b_config": "smpl_5k"
-  },
-  {
-    "id": 26,
-    "speaker": "1284-1180-0032",
-    "a_file": "audio/celp_5k_1284-1180-0032.wav",
-    "b_file": "audio/smpl_5k_1284-1180-0032.wav",
-    "orig_file": "audio/original_1284-1180-0032.wav",
-    "a_config": "celp_5k",
-    "b_config": "smpl_5k"
-  },
-  {
-    "id": 33,
-    "speaker": "1580-141083-0007",
-    "a_file": "audio/evs_96k_1580-141083-0007.wav",
-    "b_file": "audio/tcx_96k_1580-141083-0007.wav",
-    "orig_file": "audio/original_1580-141083-0007.wav",
-    "a_config": "evs_96k",
-    "b_config": "tcx_96k"
-  },
-  {
-    "id": 25,
-    "speaker": "908-157963-0014",
-    "a_file": "audio/celp_5k_908-157963-0014.wav",
-    "b_file": "audio/smpl_5k_908-157963-0014.wav",
-    "orig_file": "audio/original_908-157963-0014.wav",
-    "a_config": "celp_5k",
-    "b_config": "smpl_5k"
-  },
-  {
-    "id": 30,
-    "speaker": "908-157963-0014",
-    "a_file": "audio/evs_96k_908-157963-0014.wav",
-    "b_file": "audio/tcx_96k_908-157963-0014.wav",
-    "orig_file": "audio/original_908-157963-0014.wav",
-    "a_config": "evs_96k",
-    "b_config": "tcx_96k"
-  },
-  {
-    "id": 22,
-    "speaker": "5639-40744-0005",
-    "a_file": "audio/tcx_5k_5639-40744-0005.wav",
-    "b_file": "audio/smpl_5k_5639-40744-0005.wav",
-    "orig_file": "audio/original_5639-40744-0005.wav",
-    "a_config": "tcx_5k",
-    "b_config": "smpl_5k"
-  },
-  {
-    "id": 20,
-    "speaker": "908-157963-0014",
-    "a_file": "audio/smpl_5k_908-157963-0014.wav",
-    "b_file": "audio/tcx_5k_908-157963-0014.wav",
-    "orig_file": "audio/original_908-157963-0014.wav",
-    "a_config": "smpl_5k",
-    "b_config": "tcx_5k"
-  },
-  {
-    "id": 16,
-    "speaker": "1284-1180-0032",
-    "a_file": "audio/celp_96k_1284-1180-0032.wav",
-    "b_file": "audio/smpl_8k_1284-1180-0032.wav",
-    "orig_file": "audio/original_1284-1180-0032.wav",
-    "a_config": "celp_96k",
-    "b_config": "smpl_8k"
-  },
-  {
-    "id": 31,
-    "speaker": "1284-1180-0032",
-    "a_file": "audio/evs_96k_1284-1180-0032.wav",
-    "b_file": "audio/tcx_96k_1284-1180-0032.wav",
-    "orig_file": "audio/original_1284-1180-0032.wav",
-    "a_config": "evs_96k",
-    "b_config": "tcx_96k"
-  },
-  {
-    "id": 10,
-    "speaker": "908-157963-0014",
-    "a_file": "audio/tcx_96k_908-157963-0014.wav",
-    "b_file": "audio/smpl_8k_908-157963-0014.wav",
-    "orig_file": "audio/original_908-157963-0014.wav",
-    "a_config": "tcx_96k",
-    "b_config": "smpl_8k"
-  },
-  {
-    "id": 6,
-    "speaker": "1284-1180-0032",
-    "a_file": "audio/celp_5k_1284-1180-0032.wav",
-    "b_file": "audio/tcx_5k_1284-1180-0032.wav",
-    "orig_file": "audio/original_1284-1180-0032.wav",
-    "a_config": "celp_5k",
-    "b_config": "tcx_5k"
-  },
-  {
-    "id": 17,
-    "speaker": "5639-40744-0005",
-    "a_file": "audio/smpl_8k_5639-40744-0005.wav",
-    "b_file": "audio/celp_96k_5639-40744-0005.wav",
-    "orig_file": "audio/original_5639-40744-0005.wav",
-    "a_config": "smpl_8k",
-    "b_config": "celp_96k"
-  },
-  {
-    "id": 19,
-    "speaker": "2830-3980-0013",
-    "a_file": "audio/celp_96k_2830-3980-0013.wav",
-    "b_file": "audio/smpl_8k_2830-3980-0013.wav",
-    "orig_file": "audio/original_2830-3980-0013.wav",
-    "a_config": "celp_96k",
-    "b_config": "smpl_8k"
-  },
-  {
-    "id": 5,
+    "id": 2,
     "speaker": "908-157963-0014",
     "a_file": "audio/celp_5k_908-157963-0014.wav",
     "b_file": "audio/tcx_5k_908-157963-0014.wav",
@@ -171,7 +27,7 @@
     "b_config": "tcx_5k"
   },
   {
-    "id": 11,
+    "id": 3,
     "speaker": "1284-1180-0032",
     "a_file": "audio/smpl_8k_1284-1180-0032.wav",
     "b_file": "audio/tcx_96k_1284-1180-0032.wav",
@@ -180,7 +36,34 @@
     "b_config": "tcx_96k"
   },
   {
-    "id": 14,
+    "id": 4,
+    "speaker": "1580-141083-0007",
+    "a_file": "audio/tcx_96k_1580-141083-0007.wav",
+    "b_file": "audio/evs_96k_1580-141083-0007.wav",
+    "orig_file": "audio/original_1580-141083-0007.wav",
+    "a_config": "tcx_96k",
+    "b_config": "evs_96k"
+  },
+  {
+    "id": 5,
+    "speaker": "1284-1180-0032",
+    "a_file": "audio/smpl_8k_1284-1180-0032.wav",
+    "b_file": "audio/celp_96k_1284-1180-0032.wav",
+    "orig_file": "audio/original_1284-1180-0032.wav",
+    "a_config": "smpl_8k",
+    "b_config": "celp_96k"
+  },
+  {
+    "id": 6,
+    "speaker": "2830-3980-0013",
+    "a_file": "audio/celp_96k_2830-3980-0013.wav",
+    "b_file": "audio/tcx_96k_2830-3980-0013.wav",
+    "orig_file": "audio/original_2830-3980-0013.wav",
+    "a_config": "celp_96k",
+    "b_config": "tcx_96k"
+  },
+  {
+    "id": 7,
     "speaker": "2830-3980-0013",
     "a_file": "audio/smpl_8k_2830-3980-0013.wav",
     "b_file": "audio/tcx_96k_2830-3980-0013.wav",
@@ -190,33 +73,96 @@
   },
   {
     "id": 8,
-    "speaker": "1580-141083-0007",
-    "a_file": "audio/tcx_5k_1580-141083-0007.wav",
-    "b_file": "audio/celp_5k_1580-141083-0007.wav",
-    "orig_file": "audio/original_1580-141083-0007.wav",
-    "a_config": "tcx_5k",
-    "b_config": "celp_5k"
-  },
-  {
-    "id": 32,
-    "speaker": "5639-40744-0005",
-    "a_file": "audio/evs_96k_5639-40744-0005.wav",
-    "b_file": "audio/tcx_96k_5639-40744-0005.wav",
-    "orig_file": "audio/original_5639-40744-0005.wav",
-    "a_config": "evs_96k",
+    "speaker": "908-157963-0014",
+    "a_file": "audio/smpl_8k_908-157963-0014.wav",
+    "b_file": "audio/tcx_96k_908-157963-0014.wav",
+    "orig_file": "audio/original_908-157963-0014.wav",
+    "a_config": "smpl_8k",
     "b_config": "tcx_96k"
   },
   {
-    "id": 3,
+    "id": 9,
     "speaker": "1580-141083-0007",
-    "a_file": "audio/tcx_96k_1580-141083-0007.wav",
+    "a_file": "audio/celp_5k_1580-141083-0007.wav",
+    "b_file": "audio/tcx_5k_1580-141083-0007.wav",
+    "orig_file": "audio/original_1580-141083-0007.wav",
+    "a_config": "celp_5k",
+    "b_config": "tcx_5k"
+  },
+  {
+    "id": 10,
+    "speaker": "2830-3980-0013",
+    "a_file": "audio/smpl_5k_2830-3980-0013.wav",
+    "b_file": "audio/celp_5k_2830-3980-0013.wav",
+    "orig_file": "audio/original_2830-3980-0013.wav",
+    "a_config": "smpl_5k",
+    "b_config": "celp_5k"
+  },
+  {
+    "id": 11,
+    "speaker": "5639-40744-0005",
+    "a_file": "audio/smpl_5k_5639-40744-0005.wav",
+    "b_file": "audio/celp_5k_5639-40744-0005.wav",
+    "orig_file": "audio/original_5639-40744-0005.wav",
+    "a_config": "smpl_5k",
+    "b_config": "celp_5k"
+  },
+  {
+    "id": 12,
+    "speaker": "5639-40744-0005",
+    "a_file": "audio/tcx_5k_5639-40744-0005.wav",
+    "b_file": "audio/smpl_5k_5639-40744-0005.wav",
+    "orig_file": "audio/original_5639-40744-0005.wav",
+    "a_config": "tcx_5k",
+    "b_config": "smpl_5k"
+  },
+  {
+    "id": 13,
+    "speaker": "1284-1180-0032",
+    "a_file": "audio/celp_5k_1284-1180-0032.wav",
+    "b_file": "audio/tcx_5k_1284-1180-0032.wav",
+    "orig_file": "audio/original_1284-1180-0032.wav",
+    "a_config": "celp_5k",
+    "b_config": "tcx_5k"
+  },
+  {
+    "id": 14,
+    "speaker": "1580-141083-0007",
+    "a_file": "audio/smpl_8k_1580-141083-0007.wav",
     "b_file": "audio/celp_96k_1580-141083-0007.wav",
     "orig_file": "audio/original_1580-141083-0007.wav",
-    "a_config": "tcx_96k",
+    "a_config": "smpl_8k",
     "b_config": "celp_96k"
   },
   {
-    "id": 28,
+    "id": 15,
+    "speaker": "1284-1180-0032",
+    "a_file": "audio/tcx_5k_1284-1180-0032.wav",
+    "b_file": "audio/smpl_5k_1284-1180-0032.wav",
+    "orig_file": "audio/original_1284-1180-0032.wav",
+    "a_config": "tcx_5k",
+    "b_config": "smpl_5k"
+  },
+  {
+    "id": 16,
+    "speaker": "1284-1180-0032",
+    "a_file": "audio/smpl_5k_1284-1180-0032.wav",
+    "b_file": "audio/celp_5k_1284-1180-0032.wav",
+    "orig_file": "audio/original_1284-1180-0032.wav",
+    "a_config": "smpl_5k",
+    "b_config": "celp_5k"
+  },
+  {
+    "id": 17,
+    "speaker": "1580-141083-0007",
+    "a_file": "audio/tcx_96k_1580-141083-0007.wav",
+    "b_file": "audio/smpl_8k_1580-141083-0007.wav",
+    "orig_file": "audio/original_1580-141083-0007.wav",
+    "a_config": "tcx_96k",
+    "b_config": "smpl_8k"
+  },
+  {
+    "id": 18,
     "speaker": "1580-141083-0007",
     "a_file": "audio/smpl_5k_1580-141083-0007.wav",
     "b_file": "audio/celp_5k_1580-141083-0007.wav",
@@ -225,52 +171,61 @@
     "b_config": "celp_5k"
   },
   {
-    "id": 2,
-    "speaker": "5639-40744-0005",
-    "a_file": "audio/tcx_96k_5639-40744-0005.wav",
-    "b_file": "audio/celp_96k_5639-40744-0005.wav",
-    "orig_file": "audio/original_5639-40744-0005.wav",
+    "id": 19,
+    "speaker": "1284-1180-0032",
+    "a_file": "audio/tcx_96k_1284-1180-0032.wav",
+    "b_file": "audio/evs_96k_1284-1180-0032.wav",
+    "orig_file": "audio/original_1284-1180-0032.wav",
     "a_config": "tcx_96k",
-    "b_config": "celp_96k"
+    "b_config": "evs_96k"
   },
   {
-    "id": 9,
-    "speaker": "2830-3980-0013",
-    "a_file": "audio/tcx_5k_2830-3980-0013.wav",
-    "b_file": "audio/celp_5k_2830-3980-0013.wav",
-    "orig_file": "audio/original_2830-3980-0013.wav",
-    "a_config": "tcx_5k",
-    "b_config": "celp_5k"
+    "id": 20,
+    "speaker": "908-157963-0014",
+    "a_file": "audio/celp_96k_908-157963-0014.wav",
+    "b_file": "audio/tcx_96k_908-157963-0014.wav",
+    "orig_file": "audio/original_908-157963-0014.wav",
+    "a_config": "celp_96k",
+    "b_config": "tcx_96k"
+  },
+  {
+    "id": 21,
+    "speaker": "5639-40744-0005",
+    "a_file": "audio/celp_96k_5639-40744-0005.wav",
+    "b_file": "audio/tcx_96k_5639-40744-0005.wav",
+    "orig_file": "audio/original_5639-40744-0005.wav",
+    "a_config": "celp_96k",
+    "b_config": "tcx_96k"
+  },
+  {
+    "id": 22,
+    "speaker": "908-157963-0014",
+    "a_file": "audio/smpl_5k_908-157963-0014.wav",
+    "b_file": "audio/tcx_5k_908-157963-0014.wav",
+    "orig_file": "audio/original_908-157963-0014.wav",
+    "a_config": "smpl_5k",
+    "b_config": "tcx_5k"
+  },
+  {
+    "id": 23,
+    "speaker": "1580-141083-0007",
+    "a_file": "audio/smpl_5k_1580-141083-0007.wav",
+    "b_file": "audio/tcx_5k_1580-141083-0007.wav",
+    "orig_file": "audio/original_1580-141083-0007.wav",
+    "a_config": "smpl_5k",
+    "b_config": "tcx_5k"
   },
   {
     "id": 24,
     "speaker": "2830-3980-0013",
-    "a_file": "audio/smpl_5k_2830-3980-0013.wav",
-    "b_file": "audio/tcx_5k_2830-3980-0013.wav",
+    "a_file": "audio/tcx_96k_2830-3980-0013.wav",
+    "b_file": "audio/evs_96k_2830-3980-0013.wav",
     "orig_file": "audio/original_2830-3980-0013.wav",
-    "a_config": "smpl_5k",
-    "b_config": "tcx_5k"
+    "a_config": "tcx_96k",
+    "b_config": "evs_96k"
   },
   {
-    "id": 7,
-    "speaker": "5639-40744-0005",
-    "a_file": "audio/tcx_5k_5639-40744-0005.wav",
-    "b_file": "audio/celp_5k_5639-40744-0005.wav",
-    "orig_file": "audio/original_5639-40744-0005.wav",
-    "a_config": "tcx_5k",
-    "b_config": "celp_5k"
-  },
-  {
-    "id": 21,
-    "speaker": "1284-1180-0032",
-    "a_file": "audio/smpl_5k_1284-1180-0032.wav",
-    "b_file": "audio/tcx_5k_1284-1180-0032.wav",
-    "orig_file": "audio/original_1284-1180-0032.wav",
-    "a_config": "smpl_5k",
-    "b_config": "tcx_5k"
-  },
-  {
-    "id": 1,
+    "id": 25,
     "speaker": "1284-1180-0032",
     "a_file": "audio/tcx_96k_1284-1180-0032.wav",
     "b_file": "audio/celp_96k_1284-1180-0032.wav",
@@ -279,39 +234,84 @@
     "b_config": "celp_96k"
   },
   {
-    "id": 4,
+    "id": 26,
     "speaker": "2830-3980-0013",
-    "a_file": "audio/celp_96k_2830-3980-0013.wav",
-    "b_file": "audio/tcx_96k_2830-3980-0013.wav",
+    "a_file": "audio/smpl_5k_2830-3980-0013.wav",
+    "b_file": "audio/tcx_5k_2830-3980-0013.wav",
     "orig_file": "audio/original_2830-3980-0013.wav",
-    "a_config": "celp_96k",
-    "b_config": "tcx_96k"
+    "a_config": "smpl_5k",
+    "b_config": "tcx_5k"
   },
   {
-    "id": 12,
-    "speaker": "5639-40744-0005",
-    "a_file": "audio/tcx_96k_5639-40744-0005.wav",
-    "b_file": "audio/smpl_8k_5639-40744-0005.wav",
-    "orig_file": "audio/original_5639-40744-0005.wav",
-    "a_config": "tcx_96k",
+    "id": 27,
+    "speaker": "908-157963-0014",
+    "a_file": "audio/smpl_5k_908-157963-0014.wav",
+    "b_file": "audio/celp_5k_908-157963-0014.wav",
+    "orig_file": "audio/original_908-157963-0014.wav",
+    "a_config": "smpl_5k",
+    "b_config": "celp_5k"
+  },
+  {
+    "id": 28,
+    "speaker": "908-157963-0014",
+    "a_file": "audio/celp_96k_908-157963-0014.wav",
+    "b_file": "audio/smpl_8k_908-157963-0014.wav",
+    "orig_file": "audio/original_908-157963-0014.wav",
+    "a_config": "celp_96k",
     "b_config": "smpl_8k"
   },
   {
-    "id": 23,
-    "speaker": "1580-141083-0007",
-    "a_file": "audio/tcx_5k_1580-141083-0007.wav",
-    "b_file": "audio/smpl_5k_1580-141083-0007.wav",
-    "orig_file": "audio/original_1580-141083-0007.wav",
-    "a_config": "tcx_5k",
-    "b_config": "smpl_5k"
+    "id": 29,
+    "speaker": "908-157963-0014",
+    "a_file": "audio/tcx_96k_908-157963-0014.wav",
+    "b_file": "audio/evs_96k_908-157963-0014.wav",
+    "orig_file": "audio/original_908-157963-0014.wav",
+    "a_config": "tcx_96k",
+    "b_config": "evs_96k"
   },
   {
-    "id": 18,
-    "speaker": "1580-141083-0007",
-    "a_file": "audio/smpl_8k_1580-141083-0007.wav",
-    "b_file": "audio/celp_96k_1580-141083-0007.wav",
-    "orig_file": "audio/original_1580-141083-0007.wav",
+    "id": 30,
+    "speaker": "2830-3980-0013",
+    "a_file": "audio/smpl_8k_2830-3980-0013.wav",
+    "b_file": "audio/celp_96k_2830-3980-0013.wav",
+    "orig_file": "audio/original_2830-3980-0013.wav",
     "a_config": "smpl_8k",
     "b_config": "celp_96k"
+  },
+  {
+    "id": 31,
+    "speaker": "5639-40744-0005",
+    "a_file": "audio/celp_5k_5639-40744-0005.wav",
+    "b_file": "audio/tcx_5k_5639-40744-0005.wav",
+    "orig_file": "audio/original_5639-40744-0005.wav",
+    "a_config": "celp_5k",
+    "b_config": "tcx_5k"
+  },
+  {
+    "id": 32,
+    "speaker": "5639-40744-0005",
+    "a_file": "audio/smpl_8k_5639-40744-0005.wav",
+    "b_file": "audio/tcx_96k_5639-40744-0005.wav",
+    "orig_file": "audio/original_5639-40744-0005.wav",
+    "a_config": "smpl_8k",
+    "b_config": "tcx_96k"
+  },
+  {
+    "id": 33,
+    "speaker": "5639-40744-0005",
+    "a_file": "audio/tcx_96k_5639-40744-0005.wav",
+    "b_file": "audio/evs_96k_5639-40744-0005.wav",
+    "orig_file": "audio/original_5639-40744-0005.wav",
+    "a_config": "tcx_96k",
+    "b_config": "evs_96k"
+  },
+  {
+    "id": 34,
+    "speaker": "5639-40744-0005",
+    "a_file": "audio/celp_96k_5639-40744-0005.wav",
+    "b_file": "audio/smpl_8k_5639-40744-0005.wav",
+    "orig_file": "audio/original_5639-40744-0005.wav",
+    "a_config": "celp_96k",
+    "b_config": "smpl_8k"
   }
 ]
