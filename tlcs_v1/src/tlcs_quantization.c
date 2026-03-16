@@ -167,15 +167,16 @@ float tlcs_pitch_gain_dequantize(int index)
 /* 2-basis ACB joint gain codebook (MLOW-style)                        */
 /* ================================================================== */
 
+/* Trained from 8397 real speech (g0,g1) pairs via k-means */
 static const float tlcs_acb_gain_cb[TLCS_ACB_GAIN_ENTRIES][2] = {
-    {0.0f, 0.0f},     /* silence */
-    {0.3f, 0.0f},     /* weak pitch, no neighbor */
-    {0.6f, 0.0f},     /* moderate pitch */
-    {0.9f, 0.0f},     /* strong pitch */
-    {0.6f, 0.15f},    /* pitch + neighbor smoothing */
-    {0.9f, 0.2f},     /* strong pitch + smoothing */
-    {1.1f, 0.0f},     /* very strong pitch */
-    {1.0f, 0.3f},     /* strong pitch + strong smoothing */
+    {0.0216f, 0.4661f},
+    {0.1438f, 0.2836f},
+    {0.2460f, 0.0902f},
+    {0.2503f, -0.1192f},
+    {0.4003f, 0.2803f},
+    {0.6252f, 0.1421f},
+    {0.9263f, 0.0447f},
+    {1.3971f, -0.3259f}
 };
 
 void tlcs_acb_gain_dequantize(int index, float *g0, float *g1)
