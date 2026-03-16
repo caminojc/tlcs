@@ -1,5 +1,5 @@
 <!DOCTYPE html><html><head><meta charset="UTF-8">
-<title>TLCS v1 — LSP Fix</title>
+<title>TLCS v1 — 7.8 dB SNR</title>
 <style>*{margin:0;padding:0;box-sizing:border-box}
 body{font-family:-apple-system,system-ui,sans-serif;background:#0a0a0a;color:#e0e0e0;padding:1.5rem;max-width:800px;margin:0 auto}
 h1{font-size:1.6rem;color:#fff;margin-bottom:0.3rem}
@@ -10,29 +10,22 @@ h1{font-size:1.6rem;color:#fff;margin-bottom:0.3rem}
 .lbl{font-size:0.8rem}
 .orig .lbl{color:#60a5fa}.tlcs .lbl{color:#4ade80}.smpl .lbl{color:#f97316}
 audio{width:100%;height:28px}
-.stats{background:#1a1a1a;border-radius:8px;padding:0.8rem;margin-bottom:1.5rem;font-size:0.85rem;color:#aaa}
-b{color:#fff}
 </style></head><body>
-<h1>TLCS v1 — After LSP Deconvolution Fix</h1>
-<p class="sub">Commit b5ae429 — LSP root finder now produces 16 real roots spanning 332-7371 Hz. Previously returned uniform fallback on every frame (the scratchy bug).</p>
-<div class="stats">
-<b>Status:</b> LSP conversion fixed. VQ codebooks need retraining for new LSP distribution.<br>
-<b>8 pulses</b> / 160-sample subframes / dB-stepped gain / Phi-based search<br>
-<b>Next:</b> Retrain codebooks on DGX from correct LSPs → expect major quality jump
-</div>
+<h1>TLCS v1 CELP — Bare codec, 7.8 dB SNR</h1>
+<p class="sub">SILK-style LSP conversion fixed. 8 pulses, 160-sample subframes, 8 kbps. No postfilters (they break gains).</p>
 <div class="file"><div class="fname">908-157963-0014.wav</div>
 <div class="row orig"><div class="lbl">Original</div><audio controls preload="none"><source src="audio/orig_908-157963-0014.wav"></audio></div>
 <div class="row tlcs"><div class="lbl">TLCS v1</div><audio controls preload="none"><source src="audio/tlcs_908-157963-0014.wav"></audio></div>
-<div class="row smpl"><div class="lbl">SMPL 8k</div><audio controls preload="none"><source src="audio/smpl_908-157963-0014.wav"></audio></div>
+<div class="row smpl"><div class="lbl">MLOW 8k</div><audio controls preload="none"><source src="audio/smpl_908-157963-0014.wav"></audio></div>
 </div>
-<div class="file"><div class="fname">237-134500-0022.wav</div>
-<div class="row orig"><div class="lbl">Original</div><audio controls preload="none"><source src="audio/orig_237-134500-0022.wav"></audio></div>
-<div class="row tlcs"><div class="lbl">TLCS v1</div><audio controls preload="none"><source src="audio/tlcs_237-134500-0022.wav"></audio></div>
-<div class="row smpl"><div class="lbl">SMPL 8k</div><audio controls preload="none"><source src="audio/smpl_237-134500-0022.wav"></audio></div>
+<div class="file"><div class="fname">1284-1180-0032.wav</div>
+<div class="row orig"><div class="lbl">Original</div><audio controls preload="none"><source src="audio/orig_1284-1180-0032.wav"></audio></div>
+<div class="row tlcs"><div class="lbl">TLCS v1</div><audio controls preload="none"><source src="audio/tlcs_1284-1180-0032.wav"></audio></div>
+<div class="row smpl"><div class="lbl">MLOW 8k</div><audio controls preload="none"><source src="audio/smpl_1284-1180-0032.wav"></audio></div>
 </div>
 <div class="file"><div class="fname">2961-961-0009.wav</div>
 <div class="row orig"><div class="lbl">Original</div><audio controls preload="none"><source src="audio/orig_2961-961-0009.wav"></audio></div>
 <div class="row tlcs"><div class="lbl">TLCS v1</div><audio controls preload="none"><source src="audio/tlcs_2961-961-0009.wav"></audio></div>
-<div class="row smpl"><div class="lbl">SMPL 8k</div><audio controls preload="none"><source src="audio/smpl_2961-961-0009.wav"></audio></div>
+<div class="row smpl"><div class="lbl">MLOW 8k</div><audio controls preload="none"><source src="audio/smpl_2961-961-0009.wav"></audio></div>
 </div>
 </body></html>

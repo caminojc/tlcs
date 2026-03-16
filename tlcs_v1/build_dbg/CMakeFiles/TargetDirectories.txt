@@ -1,0 +1,4 @@
+/Users/jonathanchristensen/CLionProjects/TLCS/tlcs_v1/build_dbg/CMakeFiles/tlcs.dir
+/Users/jonathanchristensen/CLionProjects/TLCS/tlcs_v1/build_dbg/CMakeFiles/tlcs_demo.dir
+/Users/jonathanchristensen/CLionProjects/TLCS/tlcs_v1/build_dbg/CMakeFiles/edit_cache.dir
+/Users/jonathanchristensen/CLionProjects/TLCS/tlcs_v1/build_dbg/CMakeFiles/rebuild_cache.dir

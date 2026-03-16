@@ -1,0 +1,1 @@
+/usr/bin/cc -g -arch arm64 -Wl,-search_paths_first -Wl,-headerpad_max_install_names CMakeFiles/tlcs_demo.dir/demo/tlcs_demo.c.o -o tlcs_demo  -Wl,-rpath,/Users/jonathanchristensen/CLionProjects/TLCS/tlcs_v1/build_dbg libtlcs.dylib -lm
