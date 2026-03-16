@@ -92,7 +92,7 @@
 #define TLCS_PITCH_SHARPENING_COEF   0.0f
 
 /* ── Shaped noise fill (decoder) ──────────────────────── */
-#define TLCS_NOISE_V_GAIN    0.25f
+#define TLCS_NOISE_V_GAIN    0.10f
 #define TLCS_NOISE_UV_GAIN   0.50f
 
 /* ── Rate control ──────────────────────────────────────── */
