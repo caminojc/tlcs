@@ -106,24 +106,26 @@ function submitRatings() {
     }));
 
     const rated = result.filter(r => r.preference !== 'not_rated').length;
-    const counts = {'A': 0, 'B': 0, 'same-good': 0, 'same-bad': 0};
-    result.forEach(r => { if (r.preference in counts) counts[r.preference]++; });
+    const jsonText = JSON.stringify(result);
 
-    // Compact: just id:preference pairs
-    const compact = result.map(r => `${r.id}:${r.preference}`).join(',');
-    const title = `AB ratings: ${name} (${rated}/${pairs.length})`;
-    const body = `Rater: ${name}\nSummary: A=${counts.A} B=${counts.B} good=${counts['same-good']} bad=${counts['same-bad']}\nData: ${compact}`;
-
-    const url = `https://github.com/caminojc/tlcs/issues/new?title=${encodeURIComponent(title)}&body=${encodeURIComponent(body)}`;
-
-    // Always show the data for copy as backup
-    const jsonText = JSON.stringify(result, null, 2);
-    document.getElementById('submit-msg').style.display = 'block';
-    document.getElementById('submit-msg').innerHTML =
-        `<b>Thank you, ${name}!</b><br><br>` +
-        `<a href="${url}" target="_blank" style="color:#60a5fa;font-size:1.1rem">Click here to submit via GitHub</a><br><br>` +
-        `<details><summary style="cursor:pointer;color:#888">Or copy raw data</summary>` +
-        `<textarea style="width:100%;height:150px;background:#0a0a0a;color:#ccc;border:1px solid #333;margin-top:0.5rem;font-size:0.75rem" readonly>${jsonText}</textarea></details>`;
+    // Send to jsonbin.io (free, no auth needed for public bins)
+    fetch('https://api.jsonbin.io/v3/b', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-Bin-Private': 'false'},
+        body: JSON.stringify({rater: name, rated: rated, total: pairs.length, ratings: result})
+    }).then(r => r.json()).then(data => {
+        const binId = data.metadata && data.metadata.id;
+        document.getElementById('submit-msg').style.display = 'block';
+        document.getElementById('submit-msg').innerHTML =
+            `<b>Submitted! Thank you, ${name}.</b><br>` +
+            (binId ? `<span style="color:#888;font-size:0.8rem">ID: ${binId}</span>` : '');
+    }).catch(err => {
+        // Fallback: show copyable data
+        document.getElementById('submit-msg').style.display = 'block';
+        document.getElementById('submit-msg').innerHTML =
+            `<b>Could not auto-submit.</b> Please copy and send to the team:<br>` +
+            `<textarea style="width:100%;height:120px;background:#0a0a0a;color:#ccc;border:1px solid #333;margin-top:0.5rem;font-size:0.75rem" readonly onclick="this.select()">${jsonText}</textarea>`;
+    });
 }
 
 // Clear old ratings when pairs change (version key)
