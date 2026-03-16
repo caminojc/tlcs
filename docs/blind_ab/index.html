@@ -40,7 +40,8 @@ Rate on overall quality — naturalness, clarity, lack of artifacts.
 
 <div id="pairs-container"></div>
 
-<button id="export-btn" onclick="exportRatings()">Export Ratings (copy to clipboard)</button>
+<button id="export-btn" onclick="submitRatings()">Submit Ratings</button>
+<div id="submit-msg" style="display:none;margin:1rem 0;padding:1rem;background:#1a2e1a;border-radius:8px;color:#4ade80;text-align:center"></div>
 
 <script>
 let pairs = [];
@@ -91,7 +92,10 @@ function rate(id, choice, btn) {
     localStorage.setItem('tlc_ab_ratings', JSON.stringify(ratings));
 }
 
-function exportRatings() {
+function submitRatings() {
+    const name = prompt('Your name (for tracking):');
+    if (!name) return;
+
     const result = pairs.map(p => ({
         id: p.id,
         speaker: p.speaker,
@@ -99,10 +103,26 @@ function exportRatings() {
         b_file: p.b_file,
         preference: ratings[p.id] || 'not_rated'
     }));
-    const text = JSON.stringify(result, null, 2);
-    navigator.clipboard.writeText(text).then(() => {
-        alert('Ratings copied to clipboard! Paste into a file and share.');
-    });
+
+    const rated = result.filter(r => r.preference !== 'not_rated').length;
+    const summary = {};
+    result.forEach(r => { summary[r.preference] = (summary[r.preference] || 0) + 1; });
+
+    const title = encodeURIComponent(`AB ratings: ${name} (${rated}/${pairs.length})`);
+    const body = encodeURIComponent(
+        `## A/B Preference Ratings\n` +
+        `**Rater:** ${name}\n` +
+        `**Rated:** ${rated} / ${pairs.length}\n` +
+        `**Summary:** ${JSON.stringify(summary)}\n\n` +
+        `### Raw Data\n` +
+        `\`\`\`json\n${JSON.stringify(result, null, 2)}\n\`\`\`\n`
+    );
+
+    const url = `https://github.com/caminojc/tlcs/issues/new?title=${title}&body=${body}&labels=ab-ratings`;
+    window.open(url, '_blank');
+
+    document.getElementById('submit-msg').style.display = 'block';
+    document.getElementById('submit-msg').textContent = 'Ratings submitted! Thank you, ' + name + '.';
 }
 
 // Restore saved ratings
