@@ -140,118 +140,111 @@ static float cheb_eval(const float *coef, int m, float x)
     return x * b0 - b1 + 0.5f * coef[0];
 }
 
+/* Evaluate P(omega) or Q(omega) directly from LPC coefficients.
+ * P(omega) = sum_{k=0}^{m} p[k] * cos(k*omega)
+ * where p[k] = a[k] + a[order+1-k], q[k] = a[k] - a[order+1-k]
+ * and a[order+1] = 0.
+ * For even order, P has m+1 = order/2 + 1 roots in (0,pi),
+ * Q has m roots in (0,pi). Total = order roots.
+ */
 void tlcs_lpc_to_lsp(const float *lpc, int order, float *lsp_out)
 {
-    /*
-     * Build P(z) and Q(z) from A(z):
-     *   P(z) = A(z) + z^{-(order+1)} * A(z^{-1})
-     *   Q(z) = A(z) - z^{-(order+1)} * A(z^{-1})
-     *
-     * Then reduce to Chebyshev form and find roots by bisection.
-     */
-    int m = order / 2;
-    float p_coef[TLCS_LPC_ORDER / 2 + 1];
-    float q_coef[TLCS_LPC_ORDER / 2 + 1];
-
-    /* Build symmetric (P) and antisymmetric (Q) polynomials */
-    float p[TLCS_LPC_ORDER + 2];
-    float q[TLCS_LPC_ORDER + 2];
-
-    for (int i = 0; i <= order; i++) {
-        p[i] = lpc[i] + lpc[order - i];
-        q[i] = lpc[i] - lpc[order - i];
-    }
-    p[order + 1] = 0.0f;
-    q[order + 1] = 0.0f;
-
-    /* Deconvolve (1+z^-1) from P and (1-z^-1) from Q to get P' and Q' */
-    /* P'[i] = P[i] + P[i+1] (cumulative), Q'[i] = Q[i] - Q[i+1] */
-    float pp[TLCS_LPC_ORDER + 1];
-    float qp[TLCS_LPC_ORDER + 1];
-
-    /* P: divide by (1 + z^-1) */
-    pp[0] = p[0];
-    for (int i = 1; i <= order; i++) {
-        pp[i] = p[i] + pp[i - 1];
-    }
-    /* Q: divide by (1 - z^-1) */
-    qp[0] = q[0];
-    for (int i = 1; i <= order; i++) {
-        qp[i] = q[i] - qp[i - 1];
-    }
-
-    /* Extract Chebyshev coefficients for half-order polynomials */
-    /* P' is degree m in cos(omega), Q' is degree m in cos(omega) */
-    for (int i = 0; i <= m; i++) {
-        p_coef[i] = pp[2 * i];
-        q_coef[i] = qp[2 * i];
-    }
-
-    /* Find roots by evaluating Chebyshev polys and looking for sign changes */
-    const int GRID = 512;
+    /* Direct evaluation of P(omega) and Q(omega) on unit circle.
+     * P(w) = 2*Re[A(e^jw) * e^{j(p+1)w/2}] = 2*cos((p+1)w/2) + 2*sum...
+     * Simpler: P(w) = sum_{k=0}^{p+1} (a[k]+a[p+1-k]) * cos((k-(p+1)/2)*w)
+     * But easiest: just evaluate A(e^jw) directly and compute P,Q from it. */
+    const int GRID = 1024;
     int nroots = 0;
-    float prev_p = cheb_eval(p_coef, m, 1.0f);
-    float prev_q = cheb_eval(q_coef, m, 1.0f);
+    int p1 = order + 1;  /* 17 for order 16 */
+
+    /* Evaluate P(w) = Re[A(e^jw)] * 2cos(p1*w/2) + Im[A(e^jw)] * 2sin(p1*w/2)
+     * Actually: P(e^jw) = A(e^jw) + e^{-jp1w}A(e^{-jw})
+     * = A(e^jw) + conj(A(e^jw)) * e^{-jp1w}
+     * Let A(e^jw) = Ar + jAi, then:
+     * P(w) = 2*Ar*cos(p1*w/2)*cos(w*(p1/2)) + 2*Ai*sin(...)
+     * Simplest correct: P(w) = 2 * sum_{k=0}^{p/2} f1[k] * cos(kw)
+     * where f1[k] = a[k] + a[p1-k] for the DECONVOLVED polynomial.
+     *
+     * Let's just evaluate P and Q directly: */
+
+    /* P(w) = sum_{k=0}^{p1} a_ext[k] * cos(kw) where a_ext = [a; 0] + reversed
+     * This is just 2*Re[A(e^jw) * e^{jp1w/2}] */
+
+    /* Simplest approach: evaluate A(e^jw) and compute:
+     * P(w) = |A(e^jw) + e^{-j(p+1)w} * A(e^{-jw})| with phase
+     * For LSP: we need the REAL part only */
+
+    float a_ext[TLCS_LPC_ORDER + 2];
+    for (int i = 0; i <= order; i++) a_ext[i] = lpc[i];
+    a_ext[p1] = 0.0f;
+
+    /* P_coeffs[k] = a[k] + a[p1-k], Q_coeffs[k] = a[k] - a[p1-k], k=0..p1 */
+    float pc[TLCS_LPC_ORDER + 2], qc[TLCS_LPC_ORDER + 2];
+    for (int k = 0; k <= p1; k++) {
+        pc[k] = a_ext[k] + a_ext[p1 - k];
+        qc[k] = a_ext[k] - a_ext[p1 - k];
+    }
+
+    /* Evaluate P(w) = sum pc[k]*cos(kw), Q(w) = sum qc[k]*cos(kw) */
+    /* Note: Q(0)=0 always (since q[k]+q[p1-k]=0), Q(pi)=0 always.
+     * P(pi) might be 0. These known roots must be excluded. */
+
+    float prev_p = 0, prev_q = 0;
+    for (int k = 0; k <= p1; k++) { prev_p += pc[k]; prev_q += qc[k]; }
+    /* prev_p = P(0), prev_q = Q(0) = 0 always → skip Q at 0 */
 
     for (int i = 1; i <= GRID && nroots < order; i++) {
         float omega = 3.14159265f * (float)i / (float)GRID;
-        float x = cosf(omega);
-        float cur_p = cheb_eval(p_coef, m, x);
-        float cur_q = cheb_eval(q_coef, m, x);
+        float cur_p = 0, cur_q = 0;
+        for (int k = 0; k <= p1; k++) {
+            float cw = cosf((float)k * omega);
+            cur_p += pc[k] * cw;
+            cur_q += qc[k] * cw;
+        }
 
-        /* Check P for sign change */
-        if (prev_p * cur_p <= 0.0f && nroots < order) {
-            /* Bisect to refine */
+        if (prev_p * cur_p < 0.0f && nroots < order) {
             float lo = 3.14159265f * (float)(i - 1) / (float)GRID;
             float hi = omega;
-            for (int b = 0; b < 20; b++) {
+            for (int b = 0; b < 24; b++) {
                 float mid = 0.5f * (lo + hi);
-                float val = cheb_eval(p_coef, m, cosf(mid));
-                if (val * cheb_eval(p_coef, m, cosf(lo)) <= 0.0f)
-                    hi = mid;
-                else
-                    lo = mid;
+                float v = 0;
+                for (int k = 0; k <= p1; k++) v += pc[k] * cosf((float)k * mid);
+                float vlo = 0;
+                for (int k = 0; k <= p1; k++) vlo += pc[k] * cosf((float)k * lo);
+                if (v * vlo <= 0.0f) hi = mid; else lo = mid;
             }
             lsp_out[nroots++] = 0.5f * (lo + hi);
         }
-
-        /* Check Q for sign change */
-        if (prev_q * cur_q <= 0.0f && nroots < order) {
+        /* Skip Q sign changes at omega≈0 and omega≈pi (trivial roots) */
+        if (prev_q * cur_q < 0.0f && nroots < order &&
+            omega > 0.01f && omega < 3.13f) {
             float lo = 3.14159265f * (float)(i - 1) / (float)GRID;
             float hi = omega;
-            for (int b = 0; b < 20; b++) {
+            for (int b = 0; b < 24; b++) {
                 float mid = 0.5f * (lo + hi);
-                float val = cheb_eval(q_coef, m, cosf(mid));
-                if (val * cheb_eval(q_coef, m, cosf(lo)) <= 0.0f)
-                    hi = mid;
-                else
-                    lo = mid;
+                float v = 0;
+                for (int k = 0; k <= p1; k++) v += qc[k] * cosf((float)k * mid);
+                float vlo = 0;
+                for (int k = 0; k <= p1; k++) vlo += qc[k] * cosf((float)k * lo);
+                if (v * vlo <= 0.0f) hi = mid; else lo = mid;
             }
             lsp_out[nroots++] = 0.5f * (lo + hi);
         }
-
         prev_p = cur_p;
         prev_q = cur_q;
     }
 
-    /* Sort LSPs */
-    for (int i = 0; i < nroots - 1; i++) {
-        for (int j = i + 1; j < nroots; j++) {
+    /* Sort */
+    for (int i = 0; i < nroots - 1; i++)
+        for (int j = i + 1; j < nroots; j++)
             if (lsp_out[j] < lsp_out[i]) {
-                float tmp = lsp_out[i];
-                lsp_out[i] = lsp_out[j];
-                lsp_out[j] = tmp;
+                float tmp = lsp_out[i]; lsp_out[i] = lsp_out[j]; lsp_out[j] = tmp;
             }
-        }
-    }
 
-    /* Fallback: if we didn't find enough roots, fill evenly */
     if (nroots < order) {
-        for (int i = 0; i < order; i++) {
+        for (int i = 0; i < order; i++)
             lsp_out[i] = 3.14159265f * (float)(i + 1) / (float)(order + 1);
-        }
     }
-
     tlcs_lsp_stabilize(lsp_out, order, 0.005f);
 }
 

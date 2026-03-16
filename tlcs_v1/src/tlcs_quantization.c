@@ -44,12 +44,36 @@ void tlcs_lsp_vq_init(void)
     lsp_vq_ready = 1;
 }
 
+/* Predictive LSP VQ: quantize (lsp - prev_lsp) using delta codebooks.
+ * Consecutive frames have similar LSPs → delta is small → VQ captures it better.
+ * Encoder/decoder maintain prev_lsp state. */
+static float lsp_vq_prev[TLCS_LPC_ORDER];
+static int   lsp_vq_prev_valid = 0;
+
+void tlcs_lsp_vq_reset_pred(void)
+{
+    lsp_vq_prev_valid = 0;
+}
+
 void tlcs_lsp_vq_quantize(const float *lsp, int *indices, float *lsp_q)
 {
     if (!lsp_vq_ready) tlcs_lsp_vq_init();
 
+    /* Initialize predictor with uniform LSPs if first frame */
+    if (!lsp_vq_prev_valid) {
+        for (int i = 0; i < TLCS_LPC_ORDER; i++)
+            lsp_vq_prev[i] = 3.14159f * (float)(i + 1) / (float)(TLCS_LPC_ORDER + 1);
+        lsp_vq_prev_valid = 1;
+    }
+
+    /* Compute delta from prediction */
+    float delta[TLCS_LPC_ORDER];
+    for (int i = 0; i < TLCS_LPC_ORDER; i++)
+        delta[i] = lsp[i] - lsp_vq_prev[i];
+
+    /* Quantize delta using split VQ */
     for (int s = 0; s < TLCS_LSP_NUM_SPLITS; s++) {
-        const float *sub = &lsp[s * LSP_SPLIT_DIM];
+        const float *sub = &delta[s * LSP_SPLIT_DIM];
         int best_idx = 0;
         float best_dist = 1e30f;
 
@@ -66,24 +90,38 @@ void tlcs_lsp_vq_quantize(const float *lsp, int *indices, float *lsp_q)
         }
 
         indices[s] = best_idx;
+        /* Reconstruct: prev + quantized_delta */
         for (int d = 0; d < LSP_SPLIT_DIM; d++) {
-            lsp_q[s * LSP_SPLIT_DIM + d] = lsp_codebook[s][best_idx][d];
+            lsp_q[s * LSP_SPLIT_DIM + d] =
+                lsp_vq_prev[s * LSP_SPLIT_DIM + d] + lsp_codebook[s][best_idx][d];
         }
     }
+
+    /* Update predictor with quantized output (decoder will do the same) */
+    memcpy(lsp_vq_prev, lsp_q, TLCS_LPC_ORDER * sizeof(float));
 }
 
 void tlcs_lsp_vq_dequantize(const int *indices, float *lsp_out)
 {
     if (!lsp_vq_ready) tlcs_lsp_vq_init();
 
+    if (!lsp_vq_prev_valid) {
+        for (int i = 0; i < TLCS_LPC_ORDER; i++)
+            lsp_vq_prev[i] = 3.14159f * (float)(i + 1) / (float)(TLCS_LPC_ORDER + 1);
+        lsp_vq_prev_valid = 1;
+    }
+
     for (int s = 0; s < TLCS_LSP_NUM_SPLITS; s++) {
         int idx = indices[s];
         if (idx < 0) idx = 0;
         if (idx >= TLCS_LSP_CB_SIZE) idx = TLCS_LSP_CB_SIZE - 1;
         for (int d = 0; d < LSP_SPLIT_DIM; d++) {
-            lsp_out[s * LSP_SPLIT_DIM + d] = lsp_codebook[s][idx][d];
+            lsp_out[s * LSP_SPLIT_DIM + d] =
+                lsp_vq_prev[s * LSP_SPLIT_DIM + d] + lsp_codebook[s][idx][d];
         }
     }
+
+    memcpy(lsp_vq_prev, lsp_out, TLCS_LPC_ORDER * sizeof(float));
 }
 
 /* ================================================================== */
