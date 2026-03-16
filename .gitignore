@@ -22,3 +22,4 @@ eval/tlcs_celp/audio/
 *.zip
 *.egg-info/
 codec_project/celp_codec_optimizer.egg-info/
+codec_project/data/
