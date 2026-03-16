@@ -7,8 +7,8 @@
 #define M_PI 3.14159265358979323846
 #endif
 
-/* Runtime-tunable pre-emphasis coefficient (default 0.0) */
-float tlcs_preemph_coeff_ = 0.0f;
+/* Runtime-tunable pre-emphasis coefficient (default 0.60, SCOREQ-optimized) */
+float tlcs_preemph_coeff_ = 0.60f;
 
 void tlcs_preemph_init(void)
 {

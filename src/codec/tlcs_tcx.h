@@ -73,4 +73,33 @@ float tlcs_tcx_encode(const float *spec, const float *lpc_env,
 void tlcs_tcx_decode(const tlcs_tcx_params *params, const float *lpc_env,
                       float *spec_out, uint32_t *noise_seed);
 
+/* ── TNS (Temporal Noise Shaping) ──────────────────────────────────
+ * Applies a short LPC filter along MDCT coefficients to constrain
+ * quantization noise to the temporal envelope of the signal.
+ * This removes the "bathroom reverb" inherent to transform coding.
+ *
+ * Encoder: analysis filter (whiten temporal structure)
+ * Decoder: synthesis filter (restore temporal structure)
+ *
+ * TNS is applied per-band in the whitened MDCT domain.
+ * Filter coefficients are derived from the MDCT spectrum itself
+ * (no extra bits needed — decoder derives same coefficients from
+ * dequantized spectrum).
+ */
+#define TNS_ORDER       2      /* TNS filter order (keep low for stability) */
+#define TNS_MAX_BANDS   4      /* number of TNS processing regions */
+
+/* Compute TNS filter coefficients from MDCT spectrum.
+ * Returns filter order actually used (0 = TNS disabled for this band). */
+int32_t tlcs_tns_analysis(const float *spec, int32_t start, int32_t end,
+                           float *tns_coeff);
+
+/* Apply TNS analysis (forward) filter to MDCT bins in-place. */
+void tlcs_tns_filter_forward(float *spec, int32_t start, int32_t end,
+                              const float *tns_coeff, int32_t tns_order);
+
+/* Apply TNS synthesis (inverse) filter to MDCT bins in-place. */
+void tlcs_tns_filter_inverse(float *spec, int32_t start, int32_t end,
+                              const float *tns_coeff, int32_t tns_order);
+
 #endif /* TLCS_TCX_H */

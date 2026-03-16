@@ -9,6 +9,7 @@
 #include "../entropy/tlcs_ec_models.h"
 #include "tlcs_mdct.h"
 #include "tlcs_tcx.h"
+#include "tlcs_tune.h"
 #include "tlcs_mode.h"
 #include <string.h>
 #include <stdlib.h>
@@ -668,7 +669,7 @@ static tlcs_status encode_lowrate(tlcs_encoder *enc,
 
     celp_encode_core(enc, speech, n, order, subfr, n_subfr,
                      TLCS_MIN_PITCH_LAG, TLCS_MAX_PITCH_LAG,
-                     enc->cfg.num_pulses, 0.97f, 0.48f,
+                     enc->cfg.num_pulses, TUNE_CELP_GAMMA1, TUNE_CELP_GAMMA2,
                      lsf_indices, pitch_lags, pitch_fracs,
                      pitch_gain_indices, cb_entries, a_q);
 
@@ -770,7 +771,7 @@ static tlcs_status encode_lowrate_ec(tlcs_encoder *enc,
 
     celp_encode_core(enc, speech, n, order, subfr, n_subfr,
                      TLCS_MIN_PITCH_LAG, TLCS_MAX_PITCH_LAG,
-                     enc->cfg.num_pulses, 0.97f, 0.48f,
+                     enc->cfg.num_pulses, TUNE_CELP_GAMMA1, TUNE_CELP_GAMMA2,
                      lsf_indices, pitch_lags, pitch_fracs,
                      pitch_gain_indices, cb_entries, a_q);
 
@@ -1588,9 +1589,83 @@ static tlcs_status encode_lr_hybrid(tlcs_encoder *enc,
         return encode_tcx(enc, pcm_in, &bsw, bitstream_out, bytes_written);
     }
 
-    /* Mode S (CELP): currently dead code — mode decision always returns T.
-     * Fall back to encode_lowrate which creates its own bitstream. */
-    return encode_lowrate(enc, pcm_in, bitstream_out, bytes_written);
+    /* Mode S (CELP): encode using CELP core, bitstream continues after mode bit */
+    {
+        const int32_t n       = enc->cfg.frame_size;
+        const int32_t order   = enc->cfg.lpc_order;
+        const int32_t subfr   = enc->cfg.subfr_size;
+        const int32_t n_subfr = enc->cfg.n_subfr;
+
+        /* Pre-emphasis */
+        float speech[TLCS_MAX_FRAME_SIZE];
+        float preemph_mem_f = (float)enc->preemph_mem;
+        for (int32_t i = 0; i < n; i++) {
+            float s = (float)pcm_in[i] - TLCS_PREEMPH_COEFF * preemph_mem_f;
+            preemph_mem_f = (float)pcm_in[i];
+            speech[i] = s;
+        }
+        enc->preemph_mem = (int16_t)preemph_mem_f;
+
+        /* CELP core */
+        int16_t lsf_indices[TLCS_LPC_ORDER_MAX];
+        int32_t pitch_lags[TLCS_MAX_SUBFRAMES];
+        int32_t pitch_fracs[TLCS_MAX_SUBFRAMES];
+        int32_t pitch_gain_indices[TLCS_MAX_SUBFRAMES];
+        tlcs_cb_entry cb_entries[TLCS_MAX_SUBFRAMES];
+        float a_q[TLCS_LPC_ORDER_MAX + 1];
+
+        celp_encode_core(enc, speech, n, order, subfr, n_subfr,
+                         TLCS_MIN_PITCH_LAG, TLCS_MAX_PITCH_LAG,
+                         enc->cfg.num_pulses, TUNE_CELP_GAMMA1, TUNE_CELP_GAMMA2,
+                         lsf_indices, pitch_lags, pitch_fracs,
+                         pitch_gain_indices, cb_entries, a_q);
+
+        /* Pack into bitstream (bsw already has mode bit written) */
+        tlcs_cb_config cb_cfg;
+        tlcs_cb_config_init(&cb_cfg, subfr, enc->cfg.num_pulses);
+
+        int32_t lsf_bits   = enc->cfg.lsf_bits;
+        int32_t delta_bits  = enc->cfg.pitch_delta_bits;
+        int32_t delta_off   = enc->cfg.pitch_delta_offset;
+        int32_t fcb_bits    = enc->cfg.fcb_gain_bits;
+
+        /* LSF indices (VQ) */
+        if (enc->cfg.use_lsf_vq) {
+            int32_t vq_mask = (1 << lsf_bits) - 1;
+            for (int32_t s = 0; s < LSF_VQ_NUM_SPLITS; s++)
+                tlcs_bs_write(&bsw, (uint32_t)(lsf_indices[s] & vq_mask), lsf_bits);
+        } else {
+            for (int32_t i = 0; i < order; i++)
+                tlcs_bs_write(&bsw, (uint32_t)(lsf_indices[i] & ((1 << lsf_bits) - 1)), lsf_bits);
+        }
+
+        /* Per-subframe data */
+        int32_t prev_lag_idx = 0;
+        for (int32_t sf = 0; sf < n_subfr; sf++) {
+            int32_t lag_idx = tlcs_pitch_encode_lag(pitch_lags[sf], pitch_fracs[sf]);
+            if (sf == 0) {
+                tlcs_bs_write(&bsw, (uint32_t)lag_idx, 9);
+            } else {
+                int32_t delta = lag_idx - prev_lag_idx;
+                if (delta < -delta_off) delta = -delta_off;
+                if (delta > delta_off - 1) delta = delta_off - 1;
+                tlcs_bs_write(&bsw, (uint32_t)(delta + delta_off), delta_bits);
+            }
+            prev_lag_idx = lag_idx;
+
+            tlcs_bs_write(&bsw, (uint32_t)pitch_gain_indices[sf], TLCS_PITCH_GAIN_BITS);
+            for (int32_t p = 0; p < cb_cfg.num_pulses; p++) {
+                if (cb_cfg.pos_bits > 0)
+                    tlcs_bs_write(&bsw, (uint32_t)cb_entries[sf].pulse_pos[p], (int32_t)cb_cfg.pos_bits);
+                tlcs_bs_write(&bsw, (cb_entries[sf].pulse_sign[p] > 0) ? 1u : 0u, 1);
+            }
+            tlcs_bs_write(&bsw, (uint32_t)cb_entries[sf].gain_index, fcb_bits);
+        }
+
+        *bytes_written = tlcs_bs_writer_flush(&bsw);
+        enc->frame_count++;
+        return TLCS_OK;
+    }
 }
 
 /* ══════════════════════════════════════════════════════════════════
@@ -1602,6 +1677,8 @@ tlcs_status tlcs_encoder_init(tlcs_encoder *enc, const tlcs_config *cfg)
     if (!enc || !cfg) return TLCS_ERR_INVALID_ARG;
     memset(enc, 0, sizeof(*enc));
     enc->cfg = *cfg;
+
+    tlcs_preemph_init();  /* read TLCS_PREEMPH env var */
 
     float lsf_tmp[TLCS_LPC_ORDER_MAX];
     init_default_lsf(lsf_tmp, cfg->lpc_order);

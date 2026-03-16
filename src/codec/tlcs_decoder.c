@@ -1378,6 +1378,28 @@ static tlcs_status decode_vlr_core(tlcs_decoder *dec,
         float innovation[TLCS_MAX_SUBFR_SIZE];
         tlcs_cb_build_innovation(&cb_entry, &cb_cfg, innovation, subfr);
 
+        /* Decoder noise fill: fill zero positions in innovation with
+         * shaped noise to smooth sparse pulse excitation (SMPL-style).
+         * Voiced: low gain (0.35), Unvoiced: high gain (0.8). */
+        {
+            int voiced = (g0 > 0.3f && lag >= 20) ? 1 : 0;
+            float nf_gain = voiced ? TUNE_CELP_NF_VOICED : TUNE_CELP_NF_UNVOICED;
+            /* Estimate innovation RMS for scaling */
+            float innov_rms = 0.0f;
+            int32_t nz = 0;
+            for (int32_t i = 0; i < subfr; i++) {
+                if (innovation[i] != 0.0f) { innov_rms += innovation[i] * innovation[i]; nz++; }
+            }
+            if (nz > 0) {
+                innov_rms = sqrtf(innov_rms / (float)nz);
+                for (int32_t i = 0; i < subfr; i++) {
+                    if (innovation[i] == 0.0f) {
+                        innovation[i] = prng_float(&dec->noise_seed) * nf_gain * innov_rms;
+                    }
+                }
+            }
+        }
+
         /* Reconstruct excitation: ACB + FCB */
         for (int32_t i = 0; i < subfr; i++) {
             float e = g0 * v0[i] + g1 * v1[i] + innovation[i];
@@ -1439,12 +1461,13 @@ static tlcs_status decode_vlr_core(tlcs_decoder *dec,
 
     /* ── Step 5.5: Harmonic post-filter ──── */
     harmonic_postfilter(synth, n, subfr, n_subfr,
-                        dec_lags, dec_gains, dec->harm_pf_hist, 0.30f);
+                        dec_lags, dec_gains, dec->harm_pf_hist,
+                        TUNE_CELP_HARM_STR);
 
     /* ── Step 6: Formant post-filter ── */
     formant_postfilter(synth, n, subfr, n_subfr, order,
                        lsf, prev_lsf_f, lsf_alpha_vlr,
-                       0.90f, 0.95f, 0.35f,
+                       TUNE_CELP_PF_NUM, TUNE_CELP_PF_DEN, TUNE_CELP_PF_TILT,
                        dec->pf_fir_mem, dec->pf_synth_mem,
                        &dec->pf_tilt_mem);
 
@@ -2033,6 +2056,8 @@ tlcs_status tlcs_decoder_init(tlcs_decoder *dec, const tlcs_config *cfg)
     if (!dec || !cfg) return TLCS_ERR_INVALID_ARG;
     memset(dec, 0, sizeof(*dec));
     dec->cfg = *cfg;
+
+    tlcs_preemph_init();  /* read TLCS_PREEMPH env var */
 
     float lsf_tmp[TLCS_LPC_ORDER_MAX];
     init_default_lsf(lsf_tmp, cfg->lpc_order);

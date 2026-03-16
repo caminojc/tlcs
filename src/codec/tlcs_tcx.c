@@ -213,6 +213,132 @@ void tlcs_tcx_compute_alfe_weights(const float *lpc_env, int32_t frame_size,
     }
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+ * TNS (Temporal Noise Shaping)
+ *
+ * Problem: MDCT quantization noise spreads uniformly across the 20ms frame
+ * in the time domain, creating a "bathroom reverb" effect — the noise
+ * persists even during silent gaps between pitch pulses.
+ *
+ * Solution: Before quantization, apply a short LPC analysis filter ALONG
+ * the MDCT coefficients (not in time — in the spectral index direction).
+ * This whitens the spectral shape within each band, concentrating the
+ * signal energy into fewer coefficients. After dequantization, the decoder
+ * applies the inverse (synthesis) filter to restore the original shape.
+ *
+ * The key insight: filtering along MDCT bins is equivalent to shaping the
+ * temporal envelope of quantization noise. The noise gets pushed into the
+ * high-energy parts of the frame (where the speech is) and suppressed in
+ * the quiet gaps — exactly removing the bathroom effect.
+ *
+ * No extra bits needed: the decoder derives TNS coefficients from the
+ * dequantized spectrum (same as ALFE).
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+/* Compute TNS LPC from autocorrelation of spectral segment */
+int32_t tlcs_tns_analysis(const float *spec, int32_t start, int32_t end,
+                           float *tns_coeff)
+{
+    int32_t len = end - start;
+    if (len < TNS_ORDER * 4) return 0;  /* too short */
+
+    /* Autocorrelation of spectral magnitudes */
+    float r[TNS_ORDER + 1];
+    for (int32_t k = 0; k <= TNS_ORDER; k++) {
+        float sum = 0.0f;
+        for (int32_t i = start; i < end - k; i++)
+            sum += spec[i] * spec[i + k];
+        r[k] = sum;
+    }
+
+    /* Skip TNS if signal is too flat (no temporal structure to shape) */
+    if (r[0] < 1e-10f) return 0;
+    float pred_gain = r[1] * r[1] / (r[0] * r[0]);
+    if (pred_gain < 0.02f) return 0;  /* less than 2% predictable — skip */
+
+    /* Levinson-Durbin for TNS coefficients */
+    float a[TNS_ORDER + 1];
+    a[0] = 1.0f;
+    float err = r[0];
+
+    for (int32_t i = 1; i <= TNS_ORDER; i++) {
+        float sum = 0.0f;
+        for (int32_t j = 1; j < i; j++)
+            sum += a[j] * r[i - j];
+        float k_ref = -(r[i] + sum) / err;
+
+        /* Clamp reflection coefficient for stability */
+        if (k_ref > 0.95f) k_ref = 0.95f;
+        if (k_ref < -0.95f) k_ref = -0.95f;
+
+        /* Update filter */
+        float a_new[TNS_ORDER + 1];
+        a_new[0] = 1.0f;
+        for (int32_t j = 1; j < i; j++)
+            a_new[j] = a[j] + k_ref * a[i - j];
+        a_new[i] = k_ref;
+        memcpy(a, a_new, (size_t)(i + 1) * sizeof(float));
+
+        err *= (1.0f - k_ref * k_ref);
+        if (err < 1e-10f) break;
+    }
+
+    for (int32_t i = 0; i < TNS_ORDER; i++)
+        tns_coeff[i] = a[i + 1];
+
+    return TNS_ORDER;
+}
+
+/* Forward (analysis) filter: A(z) applied along spectral bins */
+void tlcs_tns_filter_forward(float *spec, int32_t start, int32_t end,
+                              const float *tns_coeff, int32_t tns_order)
+{
+    if (tns_order <= 0) return;
+
+    /* Apply FIR filter: y[n] = x[n] + sum(a[k] * x[n-k]) */
+    float state[TNS_ORDER];
+    memset(state, 0, sizeof(state));
+
+    for (int32_t i = start; i < end; i++) {
+        float x = spec[i];
+        float y = x;
+        for (int32_t k = 0; k < tns_order; k++)
+            y += tns_coeff[k] * state[k];
+
+        /* Shift state */
+        for (int32_t k = tns_order - 1; k > 0; k--)
+            state[k] = state[k - 1];
+        state[0] = x;
+
+        spec[i] = y;
+    }
+}
+
+/* Inverse (synthesis) filter: 1/A(z) applied along spectral bins */
+void tlcs_tns_filter_inverse(float *spec, int32_t start, int32_t end,
+                              const float *tns_coeff, int32_t tns_order)
+{
+    if (tns_order <= 0) return;
+
+    /* Apply IIR filter: y[n] = x[n] - sum(a[k] * y[n-k]) */
+    float state[TNS_ORDER];
+    memset(state, 0, sizeof(state));
+
+    for (int32_t i = start; i < end; i++) {
+        float x = spec[i];
+        float y = x;
+        for (int32_t k = 0; k < tns_order; k++)
+            y -= tns_coeff[k] * state[k];
+
+        /* Shift state */
+        for (int32_t k = tns_order - 1; k > 0; k--)
+            state[k] = state[k - 1];
+        state[0] = y;
+
+        spec[i] = y;
+    }
+}
+
 /* -- TCX Encode ----------------------------------------------------------- */
 float tlcs_tcx_encode(const float *spec, const float *lpc_env,
                        int32_t frame_size,
@@ -268,7 +394,7 @@ float tlcs_tcx_encode(const float *spec, const float *lpc_env,
         for (int32_t i = 0; i < frame_size; i++) {
             float norm = whitened[i] / global_gain;
             float mag = fabsf(norm) / step;
-            int32_t qmag = (int32_t)(mag + 0.5f);
+            int32_t qmag = (int32_t)(mag + TUNE_DZ_OFFSET);
             if (qmag > TCX_QUANT_MAX) qmag = TCX_QUANT_MAX;
             params->quant[i] = (whitened[i] >= 0.0f) ? (int8_t)qmag : (int8_t)(-qmag);
 

@@ -1,4 +1,5 @@
 #include "tlcs_mode.h"
+#include <stdlib.h>
 
 /* Frame-level mode decision for hybrid LP+TCX codec.
  *
@@ -19,5 +20,16 @@ int32_t tlcs_mode_decide(const float *speech, int32_t frame_size,
     (void)prev_mode;
 
     *hold_count = 3;
+    /* Check TLCS_MODE env var: "celp" forces CELP, default = TCX */
+    {
+        static int checked = 0, force_celp = 0;
+        if (!checked) {
+            const char *m = getenv("TLCS_MODE");
+            if (m && (m[0] == 'c' || m[0] == 'C' || m[0] == 's' || m[0] == 'S'))
+                force_celp = 1;
+            checked = 1;
+        }
+        if (force_celp) return TLCS_CODEC_MODE_S;
+    }
     return TLCS_CODEC_MODE_T;
 }
