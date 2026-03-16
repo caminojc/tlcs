@@ -1,37 +1,25 @@
-# TLCS Progress — 2026-03-16 05:00
+# TLCS Progress — 2026-03-16 06:00
 
-## Current Best: NISQA 1.67 avg (M1:1.21, F2:1.42, M2:2.40)
-Our 8k CELP ≈ MLOW 5k quality. User: "nice but we need to close the gap"
+## Current Best: NISQA 1.67 avg
+User: "pretty good" — closing in on MLOW quality.
 
-## All-Time Best Config (commit 290b6eb, tag best-nisqa-1.67)
-```
-W(z): gamma1=0.94, gamma2=0.60 (on both h and target — MLOW-style)
-2-basis ACB: g0*basis0 + g1*basis1, 8-entry joint codebook
-Joint gain: brute-force over (g0,g1) × dB-stepped gc
-Harmonic PF: 0.64, FB: 0.47
-Formant PF: 0.65/0.80, tilt: 0.20
-Noise: v=0.20, uv=0.40
-8 pulses Phi-based, 2×160 subframes, SILK-style LSP
-```
+## Architecture (commit a0e2a0f)
+- 2-basis ACB (MLOW-style: basis0 + basis1 neighbor interpolation)
+- Joint (g0,g1,gc) gain search over 8-entry ACB codebook × dB-stepped FCB
+- 2-pass FCB: redo with quantized ACB gains if better
+- W(z) on both h and target (MLOW gain approach)
+- SILK-style LSP conversion (62 dB roundtrip)
+- 8 pulses Phi-based, 2×160 subframes
+- Formant PF 0.65/0.80, harmonic PF 0.64, noise fill v=0.20/uv=0.40
 
-## What Didn't Help (diminishing returns)
-- Stronger postfilters (SNR crashes)
-- More noise fill (hurts female voice)
-- Pitch sharpening (hurts female)
-- Wider pitch search (codebook mismatch)
-- Persistent W(z) state (less stable)
-- LPC order 12 (lost detail)
-- SMPL-optimized values (too aggressive for our architecture)
+## DGX Status
+- SMPL steroids: STOPPED at gen 70, best 3.82 (converged)
+- **TLCS optimizer: RUNNING, gen 1, 100 gens, 12 candidates, full DGX**
+  Searching: LPC_BWE, PREEMPH, HARM_POSTF, FORMANT_PF, NOISE, PITCH params
 
-## Gap: 1.67 → 3.8 (MLOW)
-Parameter tuning exhausted at 1.67. Remaining gap needs:
-1. **Delayed-decision FCB search** with multiple survivors
-2. **Variable pulse count** (some frames need 4, others 12)
-3. **Better ACB gain codebook** (train from real speech, not static)
-
-## DGX
-- SMPL steroids: gen 64/200, best 3.82
-- TLCS optimizer: gen 13, best 0.71
+## What's Left
+DGX optimizer will find best params for this architecture.
+After that: delayed-decision search is the next code change.
 
 ## Repo
-https://github.com/caminojc/tlcs (branch: lr-v2-experiment)
+https://github.com/caminojc/tlcs
