@@ -213,13 +213,8 @@ int tlcs_encode(TlcsEncoder *enc, const int16_t *pcm,
         }
         residual[n] = val;
     }
-    /* Per-half OL pitch for better tracking across the frame */
-    int ol_pitch_sf[2];
-    ol_pitch_sf[0] = tlcs_pitch_open_loop(residual, N / 2,
-                                           TLCS_PITCH_MIN_LAG, TLCS_PITCH_MAX_LAG);
-    ol_pitch_sf[1] = tlcs_pitch_open_loop(residual + N / 2, N / 2,
-                                           TLCS_PITCH_MIN_LAG, TLCS_PITCH_MAX_LAG);
-    int ol_pitch = ol_pitch_sf[0];
+    int ol_pitch = tlcs_pitch_open_loop(residual, N,
+                                        TLCS_PITCH_MIN_LAG, TLCS_PITCH_MAX_LAG);
 
     /* ---- 6. Subframe processing ---- */
     TlcsFrameData fd;
@@ -328,8 +323,8 @@ int tlcs_encode(TlcsEncoder *enc, const int16_t *pcm,
         }
 
         /* ---- Adaptive codebook (pitch) search ---- */
-        int search_min = ol_pitch_sf[sf] - 10;
-        int search_max = ol_pitch_sf[sf] + 10;
+        int search_min = ol_pitch - 10;
+        int search_max = ol_pitch + 10;
         if (search_min < TLCS_PITCH_MIN_LAG) search_min = TLCS_PITCH_MIN_LAG;
         if (search_max > TLCS_PITCH_MAX_LAG) search_max = TLCS_PITCH_MAX_LAG;
 
@@ -350,12 +345,13 @@ int tlcs_encode(TlcsEncoder *enc, const int16_t *pcm,
         tlcs_convolve(acb_basis0, h, Nsub, acb_filt0);
         tlcs_convolve(acb_basis1, h, Nsub, acb_filt1);
 
-        /* ---- Pass 1: Initial FCB search with raw pitch_gain ---- */
+        /* Remove best ACB contribution from target (use pitch_gain on basis0 for FCB search) */
         float *target2 = (float *)malloc((size_t)Nsub * sizeof(float));
         for (int i = 0; i < Nsub; i++) {
             target2[i] = target[i] - pitch_gain * acb_filt0[i];
         }
 
+        /* ---- Algebraic codebook search (weighted domain, Phi-based) ---- */
         int fcb_index_lo, fcb_index_hi;
         float cb_gain;
         float *fcb_exc = (float *)malloc((size_t)Nsub * sizeof(float));
@@ -417,52 +413,6 @@ int tlcs_encode(TlcsEncoder *enc, const int16_t *pcm,
             }
         }
         free(fcb_filtered);
-
-        /* ---- Pass 2: Redo FCB search with quantized ACB gains ---- */
-        /* The initial FCB search used raw pitch_gain to subtract ACB.
-         * Now we have quantized (g0, g1) which may differ significantly.
-         * Redo the FCB search with the correct ACB contribution removed. */
-        {
-            for (int i = 0; i < Nsub; i++) {
-                target2[i] = target[i] - q_g0 * acb_filt0[i] - q_g1 * acb_filt1[i];
-            }
-            int fcb_lo2, fcb_hi2;
-            float cb_gain2;
-            float *fcb_exc2 = (float *)malloc((size_t)Nsub * sizeof(float));
-            tlcs_acb_search(target2, h, Nsub, &fcb_lo2, &fcb_hi2, &cb_gain2, fcb_exc2);
-
-            /* Re-quantize FCB gain */
-            float q_cg2;
-            int gi2 = tlcs_fcbgain_quantize(cb_gain2, 1, &q_cg2);
-
-            /* Check if pass 2 is better (lower weighted error) */
-            float *ff2 = (float *)calloc((size_t)Nsub, sizeof(float));
-            tlcs_convolve(fcb_exc2, h, Nsub, ff2);
-            float err2 = 0;
-            for (int i = 0; i < Nsub; i++) {
-                float r = target[i] - q_g0*acb_filt0[i] - q_g1*acb_filt1[i] - q_cg2*ff2[i];
-                err2 += r * r;
-            }
-            float *ff1 = (float *)calloc((size_t)Nsub, sizeof(float));
-            tlcs_convolve(fcb_exc, h, Nsub, ff1);
-            float err1 = 0;
-            for (int i = 0; i < Nsub; i++) {
-                float r = target[i] - q_g0*acb_filt0[i] - q_g1*acb_filt1[i] - q_cg*ff1[i];
-                err1 += r * r;
-            }
-
-            if (err2 < err1) {
-                /* Pass 2 found better pulses — use them */
-                fcb_index_lo = fcb_lo2;
-                fcb_index_hi = fcb_hi2;
-                memcpy(fcb_exc, fcb_exc2, (size_t)Nsub * sizeof(float));
-                q_cg = q_cg2;
-                fcb_gain_idx = gi2;
-            }
-            free(fcb_exc2);
-            free(ff2);
-            free(ff1);
-        }
 
         /* ---- Update excitation buffer ---- */
         float *total_exc = (float *)malloc((size_t)Nsub * sizeof(float));
