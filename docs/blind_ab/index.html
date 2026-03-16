@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TLC Blind A/B Preference Test</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;background:#0a0a0a;color:#e0e0e0;padding:2rem;line-height:1.6;max-width:700px;margin:0 auto}
+h1{font-size:1.8rem;margin-bottom:0.3rem;color:#fff}
+.sub{color:#888;margin-bottom:1.5rem}
+.pair{background:#111;border-radius:10px;padding:1.2rem;margin:1rem 0;border:1px solid #333}
+.pair.done{opacity:0.5}
+.pair-num{font-size:0.75rem;color:#555;margin-bottom:0.5rem}
+.arow{display:grid;grid-template-columns:80px 1fr;align-items:center;gap:0.6rem;margin:0.4rem 0}
+.albl{font-size:0.85rem;color:#aaa;font-weight:600}
+audio{width:100%;height:32px}
+.choices{display:flex;gap:0.8rem;margin-top:0.8rem}
+.btn{flex:1;padding:0.7rem;border:2px solid #333;border-radius:8px;background:#1a1a1a;color:#ccc;font-size:0.9rem;cursor:pointer;text-align:center;transition:all 0.2s}
+.btn:hover{border-color:#60a5fa;color:#fff}
+.btn.selected{border-color:#4ade80;background:#1a2e1a;color:#4ade80;font-weight:700}
+.progress{background:#1a1a1a;border-radius:5px;height:8px;margin:1rem 0;overflow:hidden}
+.progress-bar{background:#60a5fa;height:100%;transition:width 0.3s}
+.stats{color:#888;font-size:0.85rem;margin-bottom:1rem}
+#export-btn{display:none;margin:2rem 0;padding:1rem;background:#2d8a4e;border:none;border-radius:8px;color:#fff;font-size:1rem;cursor:pointer;width:100%}
+#export-btn:hover{background:#3a9e5c}
+.note{background:#1a1a1a;border-radius:8px;padding:1rem;margin:1rem 0;color:#aaa;font-size:0.85rem;border-left:3px solid #60a5fa}
+</style></head><body>
+<h1>TLC Blind A/B Test</h1>
+<p class="sub">Listen to Original, then A and B. Pick which sounds better. Be honest — there are no wrong answers.</p>
+
+<div class="note">
+<b>Instructions:</b> For each pair, listen to the original first, then compare A vs B.
+Pick "A is better", "B is better", or "Same" if you can't tell.
+Rate on overall quality — naturalness, clarity, lack of artifacts.
+</div>
+
+<div class="stats">
+<span id="done-count">0</span> / <span id="total-count">0</span> rated
+</div>
+<div class="progress"><div class="progress-bar" id="progress-bar" style="width:0%"></div></div>
+
+<div id="pairs-container"></div>
+
+<button id="export-btn" onclick="exportRatings()">Export Ratings (copy to clipboard)</button>
+
+<script>
+let pairs = [];
+let ratings = {};
+
+async function init() {
+    const resp = await fetch('blind_pairs.json');
+    pairs = await resp.json();
+    document.getElementById('total-count').textContent = pairs.length;
+
+    const container = document.getElementById('pairs-container');
+    pairs.forEach((p, i) => {
+        const div = document.createElement('div');
+        div.className = 'pair';
+        div.id = `pair-${p.id}`;
+        div.innerHTML = `
+            <div class="pair-num">#${i+1} of ${pairs.length}</div>
+            <div class="arow"><div class="albl">Original</div><audio controls preload="none"><source src="${p.orig_file}" type="audio/wav"></audio></div>
+            <div class="arow"><div class="albl">A</div><audio controls preload="none"><source src="${p.a_file}" type="audio/wav"></audio></div>
+            <div class="arow"><div class="albl">B</div><audio controls preload="none"><source src="${p.b_file}" type="audio/wav"></audio></div>
+            <div class="choices">
+                <div class="btn" onclick="rate(${p.id}, 'A', this)">A is better</div>
+                <div class="btn" onclick="rate(${p.id}, 'same', this)">Same</div>
+                <div class="btn" onclick="rate(${p.id}, 'B', this)">B is better</div>
+            </div>
+        `;
+        container.appendChild(div);
+    });
+}
+
+function rate(id, choice, btn) {
+    ratings[id] = choice;
+    // Update UI
+    const pair = document.getElementById(`pair-${id}`);
+    pair.querySelectorAll('.btn').forEach(b => b.classList.remove('selected'));
+    btn.classList.add('selected');
+    pair.classList.add('done');
+
+    const done = Object.keys(ratings).length;
+    document.getElementById('done-count').textContent = done;
+    document.getElementById('progress-bar').style.width = (done / pairs.length * 100) + '%';
+
+    if (done >= pairs.length) {
+        document.getElementById('export-btn').style.display = 'block';
+    }
+
+    // Auto-save to localStorage
+    localStorage.setItem('tlc_ab_ratings', JSON.stringify(ratings));
+}
+
+function exportRatings() {
+    const result = pairs.map(p => ({
+        id: p.id,
+        speaker: p.speaker,
+        a_file: p.a_file,
+        b_file: p.b_file,
+        preference: ratings[p.id] || 'not_rated'
+    }));
+    const text = JSON.stringify(result, null, 2);
+    navigator.clipboard.writeText(text).then(() => {
+        alert('Ratings copied to clipboard! Paste into a file and share.');
+    });
+}
+
+// Restore saved ratings
+const saved = localStorage.getItem('tlc_ab_ratings');
+if (saved) {
+    ratings = JSON.parse(saved);
+}
+
+init().then(() => {
+    // Restore UI state
+    for (const [id, choice] of Object.entries(ratings)) {
+        const pair = document.getElementById(`pair-${id}`);
+        if (!pair) continue;
+        const btns = pair.querySelectorAll('.btn');
+        const idx = choice === 'A' ? 0 : choice === 'same' ? 1 : 2;
+        btns[idx].classList.add('selected');
+        pair.classList.add('done');
+    }
+    const done = Object.keys(ratings).length;
+    document.getElementById('done-count').textContent = done;
+    document.getElementById('progress-bar').style.width = (done / pairs.length * 100) + '%';
+    if (done >= pairs.length) document.getElementById('export-btn').style.display = 'block';
+});
+</script>
+</body></html>
