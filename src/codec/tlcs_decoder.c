@@ -1378,74 +1378,32 @@ static tlcs_status decode_vlr_core(tlcs_decoder *dec,
         float innovation[TLCS_MAX_SUBFR_SIZE];
         tlcs_cb_build_innovation(&cb_entry, &cb_cfg, innovation, subfr);
 
-        /* Decoder noise fill (SMPL-style): fill zero positions with
-         * spectrally-shaped noise to smooth sparse pulse excitation.
-         *
-         * Key ideas from SMPL:
-         *   - Voiced: low gain, HP-filtered noise (preserves pitch clarity)
-         *   - Unvoiced: higher gain, LP-filtered @ 800 Hz (natural frication)
-         *   - Scale by innovation envelope, not just global RMS
-         *   - HP filter removes LF energy that would boom
-         */
+        /* Decoder noise fill: fill zero positions in innovation with
+         * shaped noise to smooth sparse pulse excitation (SMPL-style).
+         * Voiced: low gain (0.35), Unvoiced: high gain (0.8). */
         {
             int voiced = (g0 > 0.3f && lag >= 20) ? 1 : 0;
             float nf_gain = voiced ? TUNE_CELP_NF_VOICED : TUNE_CELP_NF_UNVOICED;
-
-            /* Compute local envelope from non-zero pulses (smoothed) */
-            float env[TLCS_MAX_SUBFR_SIZE];
-            float innov_energy = 0.0f;
+            /* Estimate innovation RMS for scaling */
+            float innov_rms = 0.0f;
             int32_t nz = 0;
             for (int32_t i = 0; i < subfr; i++) {
-                if (innovation[i] != 0.0f) {
-                    innov_energy += innovation[i] * innovation[i];
-                    nz++;
-                }
+                if (innovation[i] != 0.0f) { innov_rms += innovation[i] * innovation[i]; nz++; }
             }
-            if (nz > 0 && nf_gain > 0.001f) {
-                float innov_rms = sqrtf(innov_energy / (float)nz);
-
-                /* Generate raw noise */
-                float noise[TLCS_MAX_SUBFR_SIZE];
-                for (int32_t i = 0; i < subfr; i++)
-                    noise[i] = prng_float(&dec->noise_seed);
-
-                /* Shape noise: HP for voiced (remove boom), LP for unvoiced (natural) */
-                if (voiced) {
-                    /* 1st-order HP: y[n] = x[n] - 0.7*x[n-1] */
-                    float prev = 0.0f;
-                    for (int32_t i = 0; i < subfr; i++) {
-                        float raw = noise[i];
-                        noise[i] = raw - 0.7f * prev;
-                        prev = raw;
-                    }
-                } else {
-                    /* 1st-order LP @ ~800 Hz: y[n] = 0.85*y[n-1] + 0.15*x[n] */
-                    float lp_coeff = 0.85f;
-                    float prev_out = 0.0f;
-                    for (int32_t i = 0; i < subfr; i++) {
-                        prev_out = lp_coeff * prev_out + (1.0f - lp_coeff) * noise[i];
-                        noise[i] = prev_out;
-                    }
-                }
-
-                /* Compute smoothed pulse envelope for amplitude shaping */
-                float pulse_env = 0.0f;
-                float env_alpha = 0.95f;
-                for (int32_t i = 0; i < subfr; i++) {
-                    float abs_inn = fabsf(innovation[i]);
-                    if (abs_inn > 0.0f)
-                        pulse_env = abs_inn;
-                    else
-                        pulse_env *= env_alpha;  /* decay between pulses */
-                    env[i] = pulse_env;
-                }
-
-                /* Fill zeros with shaped, envelope-scaled noise */
+            if (nz > 0) {
+                innov_rms = sqrtf(innov_rms / (float)nz);
                 for (int32_t i = 0; i < subfr; i++) {
                     if (innovation[i] == 0.0f) {
-                        float scale = (env[i] > 0.01f * innov_rms)
-                                    ? env[i] : 0.3f * innov_rms;
-                        innovation[i] = noise[i] * nf_gain * scale;
+                        innovation[i] = prng_float(&dec->noise_seed) * nf_gain * innov_rms;
+                    }
+                }
+                /* HP filter noise-filled positions for voiced (remove LF boom) */
+                if (voiced) {
+                    float prev = 0.0f;
+                    for (int32_t i = 0; i < subfr; i++) {
+                        float cur = innovation[i];
+                        innovation[i] = cur - 0.5f * prev;
+                        prev = cur;
                     }
                 }
             }
@@ -1458,18 +1416,19 @@ static tlcs_status decode_vlr_core(tlcs_decoder *dec,
             exc[exc_offset + i] = e;
         }
 
-        /* Pitch sharpening (SMPL-style): sharpen pitch pulses in excitation.
-         * SMPL uses 0.9881; we use a tunable coefficient (default 0.85).
-         * Applied as a 1-tap comb filter: exc[i] += sharp * g0 * exc[i - lag] */
-        if (lag >= 20 && g0 > 0.4f) {
-            float sharp = TUNE_CELP_PITCH_SHARP;
+        /* Pitch-adaptive periodicity enhancement (matches encoder).
+         * Improves ACB prediction for subsequent subframes. */
+        if (lag >= 20 && g0 > 0.3f) {
+            float blend_coeff = (lag < 120) ? 0.18f : 0.08f;
+            float blend_max   = (lag < 120) ? 0.18f : 0.08f;
+            float blend = g0 * blend_coeff;
+            if (blend > blend_max) blend = blend_max;
             for (int32_t i = 0; i < subfr; i++) {
-                int32_t idx = exc_offset + i - lag;
-                if (idx >= 0) {
-                    float ps = sharp * g0 * exc[idx];
-                    exc[exc_offset + i] += ps;
-                    excitation[sf_offset + i] += ps;
-                }
+                float past_exc = exc[exc_offset + i - lag];
+                float enhanced = (1.0f - blend) * exc[exc_offset + i]
+                               + blend * past_exc;
+                excitation[sf_offset + i] = enhanced;
+                exc[exc_offset + i] = enhanced;
             }
         }
 
@@ -1524,40 +1483,6 @@ static tlcs_status decode_vlr_core(tlcs_decoder *dec,
     /* ── Step 7: Bass post-filter ─────────────────────── */
     bass_postfilter(synth, n, subfr, dec_lags, dec_gains, n_subfr,
                     dec->pf_history, &dec->pf_lp_mem);
-
-    /* ── Step 7.5: HP post-filter (50 Hz HP + 3 kHz shelf) ── */
-    {
-        /* 2nd-order Butterworth HP at 50 Hz (fs=16 kHz)
-         * Removes DC and sub-bass rumble.
-         * Coefficients from bilinear transform:
-         *   b = [0.9903, -1.9806, 0.9903]
-         *   a = [1.0,    -1.9806, 0.9613]
-         */
-        const float b0 = 0.9903f, b1 = -1.9806f, b2 = 0.9903f;
-        const float a1 = -1.9806f, a2 = 0.9613f;
-        for (int32_t i = 0; i < n; i++) {
-            float x = synth[i];
-            float y = b0 * x + b1 * dec->hp50_x1 + b2 * dec->hp50_x2
-                              - a1 * dec->hp50_y1 - a2 * dec->hp50_y2;
-            dec->hp50_x2 = dec->hp50_x1;
-            dec->hp50_x1 = x;
-            dec->hp50_y2 = dec->hp50_y1;
-            dec->hp50_y1 = y;
-            synth[i] = y;
-        }
-
-        /* 1st-order high-frequency emphasis at ~3 kHz, ~3 dB presence boost.
-         * y[n] = x[n] + alpha * (x[n] - x[n-1])
-         * This is a 1st-order differentiator shelf: flat at DC, +alpha at Nyquist,
-         * with the 3 dB point around 3 kHz for alpha ≈ 0.25. */
-        float shelf_alpha = TUNE_CELP_HP_SHELF;
-        for (int32_t i = 0; i < n; i++) {
-            float x = synth[i];
-            float y = x + shelf_alpha * (x - dec->shelf_prev_x);
-            dec->shelf_prev_x = x;
-            synth[i] = y;
-        }
-    }
 
     /* ── Step 8: De-emphasis ─────────────────────────── */
     float deemph_mem_f = (float)dec->deemph_mem;
