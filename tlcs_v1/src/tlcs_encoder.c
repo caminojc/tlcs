@@ -257,39 +257,12 @@ int tlcs_encode(TlcsEncoder *enc, const int16_t *pcm,
             }
         }
 
-        /* Impulse response of 1/A(z) */
-        float *h_synth = (float *)malloc((size_t)Nsub * sizeof(float));
-        tlcs_lpc_impulse_response(lpc_sub, P, Nsub, h_synth);
-
-        /* Apply W(z) = A(z/g1) / A(z/g2) to h_synth to get weighted IR */
+        /* Impulse response of 1/A(z) — used directly for codebook search.
+         * W(z) is applied to the TARGET only, not to h.
+         * This keeps gains in the synthesis domain so the decoder
+         * can apply them directly without domain conversion. */
         float *h = (float *)malloc((size_t)Nsub * sizeof(float));
-        {
-            float wnum_mem[TLCS_LPC_ORDER];
-            float wden_mem[TLCS_LPC_ORDER];
-            memset(wnum_mem, 0, sizeof(wnum_mem));
-            memset(wden_mem, 0, sizeof(wden_mem));
-
-            for (int i = 0; i < Nsub; i++) {
-                /* FIR part: A(z/g1) */
-                float val = h_synth[i];
-                for (int k = 0; k < P; k++) {
-                    val += lpc_wnum[k + 1] * wnum_mem[k];
-                }
-                /* Shift FIR memory */
-                for (int k = P - 1; k > 0; k--) wnum_mem[k] = wnum_mem[k - 1];
-                wnum_mem[0] = h_synth[i];
-
-                /* IIR part: 1/A(z/g2) */
-                float out_val = val;
-                for (int k = 0; k < P; k++) {
-                    out_val -= lpc_wden[k + 1] * wden_mem[k];
-                }
-                for (int k = P - 1; k > 0; k--) wden_mem[k] = wden_mem[k - 1];
-                wden_mem[0] = out_val;
-
-                h[i] = out_val;
-            }
-        }
+        tlcs_lpc_impulse_response(lpc_sub, P, Nsub, h);
 
         /* Zero-state response (ringing from previous subframe) */
         float *zsr = (float *)malloc((size_t)Nsub * sizeof(float));
@@ -433,7 +406,7 @@ int tlcs_encode(TlcsEncoder *enc, const int16_t *pcm,
         ol_pitch = int_lag;
 
         /* Free subframe allocations */
-        free(h_synth);
+        /* h_synth removed — h is now the unweighted IR directly */
         free(h);
         free(zsr);
         free(target_unweighted);

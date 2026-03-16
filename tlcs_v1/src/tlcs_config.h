@@ -85,8 +85,8 @@
 #define TLCS_FORMANT_PF_TILT         0.30f
 
 /* ── Perceptual weighting filter ───────────────────────── */
-#define TLCS_PERC_GAMMA1    1.0f
-#define TLCS_PERC_GAMMA2    1.0f
+#define TLCS_PERC_GAMMA1    0.94f
+#define TLCS_PERC_GAMMA2    0.60f
 
 /* ── Pitch sharpening ──────────────────────────────────── */
 #define TLCS_PITCH_SHARPENING_COEF   0.0f
