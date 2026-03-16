@@ -80,8 +80,8 @@
 #define TLCS_HARM_POSTF_CUTOFF_HZ    4000.0f
 
 /* ── Formant postfilter ────────────────────────────────── */
-#define TLCS_FORMANT_PF_GAMMA_NUM    0.50f
-#define TLCS_FORMANT_PF_GAMMA_DEN    0.60f
+#define TLCS_FORMANT_PF_GAMMA_NUM    0.60f
+#define TLCS_FORMANT_PF_GAMMA_DEN    0.75f
 #define TLCS_FORMANT_PF_TILT         0.30f
 
 /* ── Perceptual weighting filter ───────────────────────── */
@@ -92,8 +92,8 @@
 #define TLCS_PITCH_SHARPENING_COEF   0.0f
 
 /* ── Shaped noise fill (decoder) ──────────────────────── */
-#define TLCS_NOISE_V_GAIN    0.10f
-#define TLCS_NOISE_UV_GAIN   0.50f
+#define TLCS_NOISE_V_GAIN    0.15f
+#define TLCS_NOISE_UV_GAIN   0.40f
 
 /* ── Rate control ──────────────────────────────────────── */
 #define TLCS_RATE_CONT_GAIN     0.05f
