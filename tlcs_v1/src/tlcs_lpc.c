@@ -335,55 +335,54 @@ void tlcs_lpc_to_lsp(const float *lpc, int order, float *lsp_out)
 void tlcs_lsp_to_lpc(const float *lsp, int order, float *lpc_out)
 {
     /*
-     * Build P'(z) and Q'(z) from their roots (pairs of cos(w_k)),
+     * Build P'(z) and Q'(z) from their roots using DOUBLE PRECISION,
      * then P = (1+z^-1)*P', Q = (1-z^-1)*Q', A = 0.5*(P+Q).
+     * Even-indexed LSPs -> P', odd-indexed -> Q'.
      *
-     * Even-indexed LSPs -> P, odd-indexed -> Q.
+     * Double precision is critical for order 16: the polynomial product
+     * of 8 quadratic factors accumulates catastrophic float32 errors.
      */
     int m = order / 2;
 
-    /* P'(z): product of (1 - 2*cos(w)*z^-1 + z^-2) for even LSPs */
-    float p[TLCS_LPC_ORDER + 2];
-    float q[TLCS_LPC_ORDER + 2];
+    double p[TLCS_LPC_ORDER + 2];
+    double q_arr[TLCS_LPC_ORDER + 2];
     memset(p, 0, sizeof(p));
-    memset(q, 0, sizeof(q));
-    p[0] = 1.0f;
-    q[0] = 1.0f;
+    memset(q_arr, 0, sizeof(q_arr));
+    p[0] = 1.0;
+    q_arr[0] = 1.0;
 
     for (int i = 0; i < m; i++) {
-        float cw_p = -2.0f * cosf(lsp[2 * i]);
-        float cw_q = -2.0f * cosf(lsp[2 * i + 1]);
+        double cw_p = -2.0 * cos((double)lsp[2 * i]);
+        double cw_q = -2.0 * cos((double)lsp[2 * i + 1]);
 
-        /* Convolve P with [1, cw_p, 1] */
         for (int j = 2 * (i + 1); j >= 2; j--) {
             p[j] += cw_p * p[j - 1] + p[j - 2];
         }
         p[1] += cw_p * p[0];
 
-        /* Convolve Q with [1, cw_q, 1] */
         for (int j = 2 * (i + 1); j >= 2; j--) {
-            q[j] += cw_q * q[j - 1] + q[j - 2];
+            q_arr[j] += cw_q * q_arr[j - 1] + q_arr[j - 2];
         }
-        q[1] += cw_q * q[0];
+        q_arr[1] += cw_q * q_arr[0];
     }
 
     /* P(z) = P'(z) * (1 + z^-1),  Q(z) = Q'(z) * (1 - z^-1) */
-    float pp[TLCS_LPC_ORDER + 2];
-    float qq[TLCS_LPC_ORDER + 2];
+    double pp[TLCS_LPC_ORDER + 2];
+    double qq[TLCS_LPC_ORDER + 2];
     memset(pp, 0, sizeof(pp));
     memset(qq, 0, sizeof(qq));
 
     for (int i = 0; i <= order; i++) {
         pp[i] += p[i];
         pp[i + 1] += p[i];
-        qq[i] += q[i];
-        qq[i + 1] -= q[i];
+        qq[i] += q_arr[i];
+        qq[i + 1] -= q_arr[i];
     }
 
     /* A(z) = 0.5 * (P(z) + Q(z)) */
     lpc_out[0] = 1.0f;
     for (int i = 1; i <= order; i++) {
-        lpc_out[i] = 0.5f * (pp[i] + qq[i]);
+        lpc_out[i] = (float)(0.5 * (pp[i] + qq[i]));
     }
 }
 
