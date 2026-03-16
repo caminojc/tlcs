@@ -19,8 +19,8 @@
 #define TLCS_LPC_BWE            0.9999f   /* CMA-ES */
 
 /* ── LSP quantization ──────────────────────────────────── */
-#define TLCS_LSP_NUM_SPLITS     8
-#define TLCS_LSP_CB_BITS        4       /* 256 entries per split */
+#define TLCS_LSP_NUM_SPLITS     4
+#define TLCS_LSP_CB_BITS        8       /* 256 entries per split */
 #define TLCS_LSP_CB_SIZE        (1 << TLCS_LSP_CB_BITS)
 #define TLCS_LSP_TOTAL_BITS     (TLCS_LSP_NUM_SPLITS * TLCS_LSP_CB_BITS)  /* 32 */
 
