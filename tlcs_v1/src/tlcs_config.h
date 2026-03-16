@@ -78,7 +78,7 @@
 #define TLCS_PERC_MEL_FC_HZ     320.0f
 
 /* ── Harmonic postfilter ───────────────────────────────── */
-#define TLCS_HARM_POSTF_STRENGTH     0.75f
+#define TLCS_HARM_POSTF_STRENGTH     0.64f
 #define TLCS_HARM_POSTF_FB_STRENGTH  0.47f
 #define TLCS_HARM_POSTF_CUTOFF_HZ    4000.0f
 
@@ -95,8 +95,8 @@
 #define TLCS_PITCH_SHARPENING_COEF   0.0f
 
 /* ── Shaped noise fill (decoder) ──────────────────────── */
-#define TLCS_NOISE_V_GAIN    0.35f
-#define TLCS_NOISE_UV_GAIN   0.50f
+#define TLCS_NOISE_V_GAIN    0.20f
+#define TLCS_NOISE_UV_GAIN   0.40f
 
 /* ── Rate control ──────────────────────────────────────── */
 #define TLCS_RATE_CONT_GAIN     0.05f
