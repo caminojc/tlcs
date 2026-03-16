@@ -1,40 +1,37 @@
-# TLCS Progress — 2026-03-16 04:00
+# TLCS Progress — 2026-03-16 05:00
 
-## Current Best: NISQA 1.6 avg — "really good speech" per user
-From noise (0.67) to speech (1.6) in one session. Own C code, 8 kbps.
+## Current Best: NISQA 1.67 avg (M1:1.21, F2:1.42, M2:2.40)
+Our 8k CELP ≈ MLOW 5k quality. User: "nice but we need to close the gap"
 
-## Best Config
+## All-Time Best Config (commit 290b6eb, tag best-nisqa-1.67)
 ```
-PERC_GAMMA1=0.94, PERC_GAMMA2=0.60 (W(z) on both h and target)
-HARM_POSTF=0.64, FB=0.47
-FORMANT_PF=0.65/0.80, TILT=0.20
-NOISE_V=0.20, NOISE_UV=0.40
-PITCH_SHARPENING=0.0
-LPC_ORDER=16, 4×256 split VQ, SILK-style LSP conversion
-8 pulses Phi-based, 2×160 subframes, joint gain optimization
+W(z): gamma1=0.94, gamma2=0.60 (on both h and target — MLOW-style)
+2-basis ACB: g0*basis0 + g1*basis1, 8-entry joint codebook
+Joint gain: brute-force over (g0,g1) × dB-stepped gc
+Harmonic PF: 0.64, FB: 0.47
+Formant PF: 0.65/0.80, tilt: 0.20
+Noise: v=0.20, uv=0.40
+8 pulses Phi-based, 2×160 subframes, SILK-style LSP
 ```
 
-## Session Breakthroughs
-1. LSP root finder fixed (uniform fallback → real roots)
-2. SILK-style LSP conversion (62 dB roundtrip)
-3. MLOW gain approach (W(z) on both h+target, gain direct)
-4. Joint pitch+FCB gain optimization (brute-force over quantized space)
-5. Full-corpus codebook training on DGX
+## What Didn't Help (diminishing returns)
+- Stronger postfilters (SNR crashes)
+- More noise fill (hurts female voice)
+- Pitch sharpening (hurts female)
+- Wider pitch search (codebook mismatch)
+- Persistent W(z) state (less stable)
+- LPC order 12 (lost detail)
+- SMPL-optimized values (too aggressive for our architecture)
 
-## Quality vs MLOW
-Our 8k ≈ MLOW 5k quality. Gap to MLOW 8k needs:
-- Delayed-decision codebook search
-- Variable pulse count with rate control
-- Joint 3×3 ACB+FCB gain (MLOW uses 2 ACB basis vectors)
-- SMPL-optimized params don't transfer (different architecture)
+## Gap: 1.67 → 3.8 (MLOW)
+Parameter tuning exhausted at 1.67. Remaining gap needs:
+1. **Delayed-decision FCB search** with multiple survivors
+2. **Variable pulse count** (some frames need 4, others 12)
+3. **Better ACB gain codebook** (train from real speech, not static)
 
-## DGX Status
-- SMPL steroids: gen 63/200, best 3.82 (24 params optimized)
-- TLCS v1 optimizer: gen 5, exploring (NISQA ~0.7 on DGX)
-
-## Tags
-- `best-nisqa-1.5` — first good config
-- `best-nisqa-1.5-v2` — with full-corpus codebooks
+## DGX
+- SMPL steroids: gen 64/200, best 3.82
+- TLCS optimizer: gen 13, best 0.71
 
 ## Repo
-https://github.com/caminojc/tlcs (branch: lr-v2-experiment, commit ceb5d2c)
+https://github.com/caminojc/tlcs (branch: lr-v2-experiment)
