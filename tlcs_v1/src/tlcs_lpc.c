@@ -120,269 +120,401 @@ void tlcs_bwe(float *lpc, int order, float gamma)
 }
 
 /* ================================================================== */
-/* LPC -> LSP via Chebyshev polynomial evaluation                      */
+/* SILK-style cosine lookup table and helpers                           */
 /* ================================================================== */
 
 /*
- * Evaluate the Chebyshev polynomial series at cos(omega).
- * coef: coefficients of the polynomial, length = (order/2 + 1).
+ * Piecewise-linear cosine table from SILK (Q12, 129 entries).
+ * Maps NLSF in Q15 (0..32768 = 0..pi) to 2*cos(LSF) in Q12.
+ * Entry i = round(2 * cos(i * pi / 128) * 4096).
  */
-static float cheb_eval(const float *coef, int m, float x)
+static const short silk_cos_tab_q12[129] = {
+     8192,  8190,  8182,  8170,  8152,  8130,  8104,  8072,
+     8034,  7994,  7946,  7896,  7840,  7778,  7714,  7644,
+     7568,  7490,  7406,  7318,  7226,  7128,  7026,  6922,
+     6812,  6698,  6580,  6458,  6332,  6204,  6070,  5934,
+     5792,  5648,  5502,  5352,  5198,  5040,  4880,  4718,
+     4552,  4382,  4212,  4038,  3862,  3684,  3502,  3320,
+     3136,  2948,  2760,  2570,  2378,  2186,  1990,  1794,
+     1598,  1400,  1202,  1002,   802,   602,   402,   202,
+        0,  -202,  -402,  -602,  -802, -1002, -1202, -1400,
+    -1598, -1794, -1990, -2186, -2378, -2570, -2760, -2948,
+    -3136, -3320, -3502, -3684, -3862, -4038, -4212, -4382,
+    -4552, -4718, -4880, -5040, -5198, -5352, -5502, -5648,
+    -5792, -5934, -6070, -6204, -6332, -6458, -6580, -6698,
+    -6812, -6922, -7026, -7128, -7226, -7318, -7406, -7490,
+    -7568, -7644, -7714, -7778, -7840, -7896, -7946, -7994,
+    -8034, -8072, -8104, -8130, -8152, -8170, -8182, -8190,
+    -8192
+};
+
+#define LSF_COS_TAB_SZ  128
+#define BIN_DIV_STEPS    3
+#define MAX_A2NLSF_ITER  16
+#define MY_PI            3.14159265358979323846f
+
+/* ================================================================== */
+/* LPC -> LSP conversion (SILK A2NLSF algorithm, float)                */
+/* ================================================================== */
+
+/*
+ * Transform polynomial from cos(n*f) basis to cos(f)^n basis.
+ * Same as silk_A2NLSF_trans_poly but in double precision.
+ */
+static void trans_poly(double *p, int dd)
 {
-    float b0, b1, b2;
-    b1 = 0.0f;
-    b0 = 0.0f;
-    for (int k = m; k >= 1; k--) {
-        b2 = b1;
-        b1 = b0;
-        b0 = 2.0f * x * b1 - b2 + coef[k];
+    for (int k = 2; k <= dd; k++) {
+        for (int n = dd; n > k; n--) {
+            p[n - 2] -= p[n];
+        }
+        p[k - 2] -= 2.0 * p[k];
     }
-    return x * b0 - b1 + 0.5f * coef[0];
 }
 
-/* Evaluate P(omega) or Q(omega) directly from LPC coefficients.
- * P(omega) = sum_{k=0}^{m} p[k] * cos(k*omega)
- * where p[k] = a[k] + a[order+1-k], q[k] = a[k] - a[order+1-k]
- * and a[order+1] = 0.
- * For even order, P has m+1 = order/2 + 1 roots in (0,pi),
- * Q has m roots in (0,pi). Total = order roots.
+/*
+ * Evaluate polynomial in cos(f)^n basis using Horner's method.
+ * x = cos(f) in Q12-equivalent float, p[] in Q16-equivalent float.
+ * Returns value in Q16-equivalent float.
  */
+static double eval_poly(const double *p, double x, int dd)
+{
+    double x_scaled = x * 16.0;   /* Q12 -> Q16 equivalent scaling */
+    double y = p[dd];
+    for (int n = dd - 1; n >= 0; n--) {
+        /* SMLAWW equivalent: p[n] + (y * x_scaled) >> 16 in float */
+        y = p[n] + (y * x_scaled) / 65536.0;
+    }
+    return y;
+}
+
+/*
+ * Initialize P and Q polynomials from LPC coefficients.
+ * a_q16[] = LPC coefficients scaled to Q16 (no leading 1).
+ */
+static void a2nlsf_init(const double *a_q16, double *P, double *Q, int dd, int d)
+{
+    /* Convert filter coefficients to even and odd polynomials */
+    P[dd] = 65536.0;   /* 1 << 16 */
+    Q[dd] = 65536.0;
+    for (int k = 0; k < dd; k++) {
+        P[k] = -a_q16[dd - k - 1] - a_q16[dd + k];
+        Q[k] = -a_q16[dd - k - 1] + a_q16[dd + k];
+    }
+
+    /* Divide out trivial roots: z=1 from Q, z=-1 from P */
+    for (int k = dd; k > 0; k--) {
+        P[k - 1] -= P[k];
+        Q[k - 1] += Q[k];
+    }
+
+    /* Transform from cos(n*f) to cos(f)^n */
+    trans_poly(P, dd);
+    trans_poly(Q, dd);
+}
+
 void tlcs_lpc_to_lsp(const float *lpc, int order, float *lsp_out)
 {
-    /* Build P, Q polynomials, deconvolve trivial roots, evaluate as Chebyshev. */
-    int m = order / 2;  /* 8 */
-    float a_ext[TLCS_LPC_ORDER + 2];
-    for (int i = 0; i <= order; i++) a_ext[i] = lpc[i];
-    a_ext[order + 1] = 0.0f;
+    int dd = order / 2;
 
-    float p_poly[TLCS_LPC_ORDER + 2], q_poly[TLCS_LPC_ORDER + 2];
-    for (int i = 0; i <= order + 1; i++) {
-        p_poly[i] = a_ext[i] + a_ext[order + 1 - i];
-        q_poly[i] = a_ext[i] - a_ext[order + 1 - i];
+    /* Convert float LPC to Q16 double (same as SMPL wrapper) */
+    double a_q16[TLCS_LPC_ORDER];
+    for (int i = 0; i < order; i++) {
+        a_q16[i] = (double)(-lpc[i + 1]) * 65536.0;
     }
 
-    /* Deconvolve: P/(1+z^-1) and Q/(1-z^-1) */
-    float f1[TLCS_LPC_ORDER + 1], f2[TLCS_LPC_ORDER + 1];
-    f1[0] = p_poly[0];
-    for (int i = 1; i <= order; i++) f1[i] = p_poly[i] + f1[i - 1];
-    f2[0] = q_poly[0];
-    for (int i = 1; i <= order; i++) f2[i] = q_poly[i] + f2[i - 1];
+    double P[TLCS_LPC_ORDER / 2 + 1];
+    double Q[TLCS_LPC_ORDER / 2 + 1];
+    double *PQ[2];
+    PQ[0] = P;
+    PQ[1] = Q;
 
-    /* Build Chebyshev coefficients from symmetric polynomial first half */
-    float c1[TLCS_LPC_ORDER / 2 + 1], c2[TLCS_LPC_ORDER / 2 + 1];
-    c1[0] = f1[m];
-    for (int k = 1; k <= m; k++) c1[k] = 2.0f * f1[m - k];
-    c2[0] = f2[m];
-    for (int k = 1; k <= m; k++) c2[k] = 2.0f * f2[m - k];
+    a2nlsf_init(a_q16, P, Q, dd, order);
 
-    /* Find roots by grid search + bisection on Chebyshev polynomials */
-    const int GRID = 1024;
-    int nroots = 0;
+    /* Find roots by walking the cosine table, alternating P and Q */
+    double *p = P;
+    double xlo = (double)silk_cos_tab_q12[0];   /* Q12 */
+    double ylo = eval_poly(p, xlo, dd);
+    int root_ix;
 
-    float prev_f1 = cheb_eval(c1, m, 1.0f);
-    float prev_f2 = cheb_eval(c2, m, 1.0f);
+    int nlsf_q15[TLCS_LPC_ORDER];   /* output in NLSF Q15 */
 
-    for (int i = 1; i <= GRID && nroots < order; i++) {
-        float omega = 3.14159265f * (float)i / (float)GRID;
-        float x = cosf(omega);
-        float cur_f1 = cheb_eval(c1, m, x);
-        float cur_f2 = cheb_eval(c2, m, x);
-
-        if (prev_f1 * cur_f1 < 0.0f && nroots < order) {
-            float lo = 3.14159265f * (float)(i - 1) / (float)GRID;
-            float hi = omega;
-            for (int b = 0; b < 24; b++) {
-                float mid = 0.5f * (lo + hi);
-                float v = cheb_eval(c1, m, cosf(mid));
-                float vlo = cheb_eval(c1, m, cosf(lo));
-                if (v * vlo <= 0.0f) hi = mid; else lo = mid;
-            }
-            lsp_out[nroots++] = 0.5f * (lo + hi);
-        }
-        if (prev_f2 * cur_f2 < 0.0f && nroots < order) {
-            float lo = 3.14159265f * (float)(i - 1) / (float)GRID;
-            float hi = omega;
-            for (int b = 0; b < 24; b++) {
-                float mid = 0.5f * (lo + hi);
-                float v = cheb_eval(c2, m, cosf(mid));
-                float vlo = cheb_eval(c2, m, cosf(lo));
-                if (v * vlo <= 0.0f) hi = mid; else lo = mid;
-            }
-            lsp_out[nroots++] = 0.5f * (lo + hi);
-        }
-        prev_f1 = cur_f1;
-        prev_f2 = cur_f2;
+    if (ylo < 0.0) {
+        nlsf_q15[0] = 0;
+        p = Q;
+        ylo = eval_poly(p, xlo, dd);
+        root_ix = 1;
+    } else {
+        root_ix = 0;
     }
 
-    /* Sort */
-    for (int i = 0; i < nroots - 1; i++)
-        for (int j = i + 1; j < nroots; j++)
-            if (lsp_out[j] < lsp_out[i]) {
-                float tmp = lsp_out[i]; lsp_out[i] = lsp_out[j]; lsp_out[j] = tmp;
+    int k = 1;
+    int iter = 0;
+    double thr = 0.0;
+
+    while (1) {
+        double xhi = (double)silk_cos_tab_q12[k];
+        double yhi = eval_poly(p, xhi, dd);
+
+        /* Detect zero crossing */
+        if ((ylo <= 0.0 && yhi >= thr) || (ylo >= 0.0 && yhi <= -thr)) {
+            if (yhi == 0.0) {
+                thr = 1.0;
+            } else {
+                thr = 0.0;
             }
 
-    if (nroots < order) {
-        for (int i = 0; i < order; i++)
-            lsp_out[i] = 3.14159265f * (float)(i + 1) / (float)(order + 1);
+            /* Binary division to refine root location */
+            int ffrac = -256;
+            for (int m = 0; m < BIN_DIV_STEPS; m++) {
+                double xmid = (xlo + xhi) * 0.5;
+                /* Round to nearest (matches silk_RSHIFT_ROUND) */
+                if (xmid > 0.0) xmid = floor(xmid + 0.5);
+                else             xmid = ceil(xmid - 0.5);
+
+                double ymid = eval_poly(p, xmid, dd);
+
+                if ((ylo <= 0.0 && ymid >= 0.0) || (ylo >= 0.0 && ymid <= 0.0)) {
+                    xhi = xmid;
+                    yhi = ymid;
+                } else {
+                    xlo = xmid;
+                    ylo = ymid;
+                    ffrac += (128 >> m);
+                }
+            }
+
+            /* Linear interpolation for fractional part */
+            double abs_ylo = ylo < 0.0 ? -ylo : ylo;
+            if (abs_ylo < 65536.0) {
+                double den = ylo - yhi;
+                double nom = ylo * (double)(1 << (8 - BIN_DIV_STEPS)) + den * 0.5;
+                if (den != 0.0) {
+                    ffrac += (int)(nom / den);
+                }
+            } else {
+                double denom = (ylo - yhi) / (double)(1 << (8 - BIN_DIV_STEPS));
+                if (denom != 0.0) {
+                    ffrac += (int)(ylo / denom);
+                }
+            }
+
+            int nlsf_val = k * 256 + ffrac;
+            if (nlsf_val > 32767) nlsf_val = 32767;
+            if (nlsf_val < 0) nlsf_val = 0;
+            nlsf_q15[root_ix] = nlsf_val;
+
+            root_ix++;
+            if (root_ix >= order) {
+                break;   /* Found all roots */
+            }
+
+            /* Alternate between P and Q */
+            p = PQ[root_ix & 1];
+
+            xlo = (double)silk_cos_tab_q12[k - 1];
+            ylo = (1 - (root_ix & 2)) * 4096.0;   /* ±4096 = ±(1<<12) */
+        } else {
+            k++;
+            xlo = xhi;
+            ylo = yhi;
+            thr = 0.0;
+
+            if (k > LSF_COS_TAB_SZ) {
+                iter++;
+                if (iter > MAX_A2NLSF_ITER) {
+                    /* Fallback: white spectrum */
+                    for (int i = 0; i < order; i++) {
+                        lsp_out[i] = MY_PI * (float)(i + 1) / (float)(order + 1);
+                    }
+                    tlcs_lsp_stabilize(lsp_out, order, 0.005f);
+                    return;
+                }
+
+                /* Bandwidth expansion and retry */
+                double chirp = (65536.0 - (double)(1 << iter)) / 65536.0;
+                double g = chirp;
+                for (int i = 0; i < order; i++) {
+                    a_q16[i] *= g;
+                    g *= chirp;
+                }
+
+                a2nlsf_init(a_q16, P, Q, dd, order);
+                p = P;
+                xlo = (double)silk_cos_tab_q12[0];
+                ylo = eval_poly(p, xlo, dd);
+                if (ylo < 0.0) {
+                    nlsf_q15[0] = 0;
+                    p = Q;
+                    ylo = eval_poly(p, xlo, dd);
+                    root_ix = 1;
+                } else {
+                    root_ix = 0;
+                }
+                k = 1;
+            }
+        }
+    }
+
+    /* Convert NLSF Q15 back to radians */
+    for (int i = 0; i < order; i++) {
+        lsp_out[i] = (float)nlsf_q15[i] * (MY_PI / 32768.0f);
     }
     tlcs_lsp_stabilize(lsp_out, order, 0.005f);
-
-#if 0 /* OLD BROKEN CODE — kept for reference */
-    /* Direct evaluation of P(omega) and Q(omega) on unit circle.
-     * P(w) = 2*Re[A(e^jw) * e^{j(p+1)w/2}] = 2*cos((p+1)w/2) + 2*sum...
-     * Simpler: P(w) = sum_{k=0}^{p+1} (a[k]+a[p+1-k]) * cos((k-(p+1)/2)*w)
-     * But easiest: just evaluate A(e^jw) directly and compute P,Q from it. */
-    const int GRID = 1024;
-    int nroots = 0;
-    int p1 = order + 1;  /* 17 for order 16 */
-
-    /* Evaluate P(w) = Re[A(e^jw)] * 2cos(p1*w/2) + Im[A(e^jw)] * 2sin(p1*w/2)
-     * Actually: P(e^jw) = A(e^jw) + e^{-jp1w}A(e^{-jw})
-     * = A(e^jw) + conj(A(e^jw)) * e^{-jp1w}
-     * Let A(e^jw) = Ar + jAi, then:
-     * P(w) = 2*Ar*cos(p1*w/2)*cos(w*(p1/2)) + 2*Ai*sin(...)
-     * Simplest correct: P(w) = 2 * sum_{k=0}^{p/2} f1[k] * cos(kw)
-     * where f1[k] = a[k] + a[p1-k] for the DECONVOLVED polynomial.
-     *
-     * Let's just evaluate P and Q directly: */
-
-    /* P(w) = sum_{k=0}^{p1} a_ext[k] * cos(kw) where a_ext = [a; 0] + reversed
-     * This is just 2*Re[A(e^jw) * e^{jp1w/2}] */
-
-    /* Simplest approach: evaluate A(e^jw) and compute:
-     * P(w) = |A(e^jw) + e^{-j(p+1)w} * A(e^{-jw})| with phase
-     * For LSP: we need the REAL part only */
-
-    float a_ext[TLCS_LPC_ORDER + 2];
-    for (int i = 0; i <= order; i++) a_ext[i] = lpc[i];
-    a_ext[p1] = 0.0f;
-
-    /* P_coeffs[k] = a[k] + a[p1-k], Q_coeffs[k] = a[k] - a[p1-k], k=0..p1 */
-    float pc[TLCS_LPC_ORDER + 2], qc[TLCS_LPC_ORDER + 2];
-    for (int k = 0; k <= p1; k++) {
-        pc[k] = a_ext[k] + a_ext[p1 - k];
-        qc[k] = a_ext[k] - a_ext[p1 - k];
-    }
-
-    /* Evaluate P(w) = sum pc[k]*cos(kw), Q(w) = sum qc[k]*cos(kw) */
-    /* Note: Q(0)=0 always (since q[k]+q[p1-k]=0), Q(pi)=0 always.
-     * P(pi) might be 0. These known roots must be excluded. */
-
-    float prev_p = 0, prev_q = 0;
-    for (int k = 0; k <= p1; k++) { prev_p += pc[k]; prev_q += qc[k]; }
-    /* prev_p = P(0), prev_q = Q(0) = 0 always → skip Q at 0 */
-
-    for (int i = 1; i <= GRID && nroots < order; i++) {
-        float omega = 3.14159265f * (float)i / (float)GRID;
-        float cur_p = 0, cur_q = 0;
-        for (int k = 0; k <= p1; k++) {
-            float cw = cosf((float)k * omega);
-            cur_p += pc[k] * cw;
-            cur_q += qc[k] * cw;
-        }
-
-        if (prev_p * cur_p < 0.0f && nroots < order) {
-            float lo = 3.14159265f * (float)(i - 1) / (float)GRID;
-            float hi = omega;
-            for (int b = 0; b < 24; b++) {
-                float mid = 0.5f * (lo + hi);
-                float v = 0;
-                for (int k = 0; k <= p1; k++) v += pc[k] * cosf((float)k * mid);
-                float vlo = 0;
-                for (int k = 0; k <= p1; k++) vlo += pc[k] * cosf((float)k * lo);
-                if (v * vlo <= 0.0f) hi = mid; else lo = mid;
-            }
-            lsp_out[nroots++] = 0.5f * (lo + hi);
-        }
-        /* Skip Q sign changes at omega≈0 and omega≈pi (trivial roots) */
-        if (prev_q * cur_q < 0.0f && nroots < order &&
-            omega > 0.01f && omega < 3.13f) {
-            float lo = 3.14159265f * (float)(i - 1) / (float)GRID;
-            float hi = omega;
-            for (int b = 0; b < 24; b++) {
-                float mid = 0.5f * (lo + hi);
-                float v = 0;
-                for (int k = 0; k <= p1; k++) v += qc[k] * cosf((float)k * mid);
-                float vlo = 0;
-                for (int k = 0; k <= p1; k++) vlo += qc[k] * cosf((float)k * lo);
-                if (v * vlo <= 0.0f) hi = mid; else lo = mid;
-            }
-            lsp_out[nroots++] = 0.5f * (lo + hi);
-        }
-        prev_p = cur_p;
-        prev_q = cur_q;
-    }
-
-    /* Sort */
-    for (int i = 0; i < nroots - 1; i++)
-        for (int j = i + 1; j < nroots; j++)
-            if (lsp_out[j] < lsp_out[i]) {
-                float tmp = lsp_out[i]; lsp_out[i] = lsp_out[j]; lsp_out[j] = tmp;
-            }
-
-    if (nroots < order) {
-        for (int i = 0; i < order; i++)
-            lsp_out[i] = 3.14159265f * (float)(i + 1) / (float)(order + 1);
-    }
-    tlcs_lsp_stabilize(lsp_out, order, 0.005f);
-#endif /* OLD BROKEN CODE */
 }
 
 /* ================================================================== */
 /* LSP -> LPC reconstruction                                           */
 /* ================================================================== */
 
+/* ================================================================== */
+/* LSP -> LPC reconstruction (SILK NLSF2A algorithm, float)            */
+/* ================================================================== */
+
+/*
+ * SILK ordering tables — interleave LSFs for better numerical accuracy
+ * in the polynomial convolution.
+ */
+static const unsigned char silk_ordering_16[16] = {
+    0, 15, 8, 7, 4, 11, 12, 3, 2, 13, 10, 5, 6, 9, 14, 1
+};
+static const unsigned char silk_ordering_10[10] = {
+    0, 9, 6, 3, 4, 5, 8, 1, 2, 7
+};
+static const unsigned char silk_ordering_4[4] = {
+    0, 3, 2, 1
+};
+
+/*
+ * Build polynomial via convolution (SILK find_poly), in double precision.
+ * out[0..dd], cLSF = interleaved 2*cos(LSF) values.
+ */
+static void nlsf2a_find_poly(double *out, const double *cLSF, int dd)
+{
+    /* All values are in QA (=16) fixed-point equivalent.
+     * Multiplications produce QA*2, so we divide by 2^QA after each multiply.
+     * This matches SILK's silk_RSHIFT_ROUND64(silk_SMULL(ftmp, out[k]), QA). */
+    const double QA_SCALE = 65536.0;  /* 1 << 16 */
+
+    out[0] = QA_SCALE;  /* 1.0 in QA */
+    out[1] = -cLSF[0];
+    for (int k = 1; k < dd; k++) {
+        double ftmp = cLSF[2 * k];
+        out[k + 1] = 2.0 * out[k - 1] - floor(ftmp * out[k] / QA_SCALE + 0.5);
+        for (int n = k; n > 1; n--) {
+            out[n] += out[n - 2] - floor(ftmp * out[n - 1] / QA_SCALE + 0.5);
+        }
+        out[1] -= ftmp;
+    }
+}
+
 void tlcs_lsp_to_lpc(const float *lsp, int order, float *lpc_out)
 {
     /*
-     * Build P'(z) and Q'(z) from their roots using DOUBLE PRECISION,
-     * then P = (1+z^-1)*P', Q = (1-z^-1)*Q', A = 0.5*(P+Q).
-     * Even-indexed LSPs -> P', odd-indexed -> Q'.
-     *
-     * Double precision is critical for order 16: the polynomial product
-     * of 8 quadratic factors accumulates catastrophic float32 errors.
+     * SILK NLSF2A algorithm in float/double.
+     * 1. Convert LSPs (radians) to NLSF Q15
+     * 2. Use piecewise-linear cosine table to get 2*cos(LSF) values
+     * 3. Build P and Q polynomials via convolution with ordering trick
+     * 4. Convert to LPC coefficients
+     * 5. Stability check with bandwidth expansion fallback
      */
-    int m = order / 2;
+    int dd = order / 2;
 
-    double p[TLCS_LPC_ORDER + 2];
-    double q_arr[TLCS_LPC_ORDER + 2];
-    memset(p, 0, sizeof(p));
-    memset(q_arr, 0, sizeof(q_arr));
-    p[0] = 1.0;
-    q_arr[0] = 1.0;
-
-    for (int i = 0; i < m; i++) {
-        double cw_p = -2.0 * cos((double)lsp[2 * i]);
-        double cw_q = -2.0 * cos((double)lsp[2 * i + 1]);
-
-        for (int j = 2 * (i + 1); j >= 2; j--) {
-            p[j] += cw_p * p[j - 1] + p[j - 2];
-        }
-        p[1] += cw_p * p[0];
-
-        for (int j = 2 * (i + 1); j >= 2; j--) {
-            q_arr[j] += cw_q * q_arr[j - 1] + q_arr[j - 2];
-        }
-        q_arr[1] += cw_q * q_arr[0];
+    /* Select ordering table */
+    const unsigned char *ordering;
+    if (order == 16)      ordering = silk_ordering_16;
+    else if (order == 10) ordering = silk_ordering_10;
+    else if (order == 4)  ordering = silk_ordering_4;
+    else {
+        /* Fallback: identity ordering for other orders */
+        static unsigned char identity[TLCS_LPC_ORDER];
+        for (int i = 0; i < order; i++) identity[i] = (unsigned char)i;
+        ordering = identity;
     }
 
-    /* P(z) = P'(z) * (1 + z^-1),  Q(z) = Q'(z) * (1 - z^-1) */
-    double pp[TLCS_LPC_ORDER + 2];
-    double qq[TLCS_LPC_ORDER + 2];
-    memset(pp, 0, sizeof(pp));
-    memset(qq, 0, sizeof(qq));
+    /* Convert LSP (radians) -> NLSF Q15 -> 2*cos(LSF) via table lookup */
+    double cos_LSF[TLCS_LPC_ORDER];
+    for (int k = 0; k < order; k++) {
+        /* LSP to NLSF Q15: nlsf = round(lsp * 32768 / pi) */
+        int nlsf = (int)(lsp[k] * (32768.0f / MY_PI) + 0.5f);
+        if (nlsf < 0) nlsf = 0;
+        if (nlsf > 32767) nlsf = 32767;
 
-    for (int i = 0; i <= order; i++) {
-        pp[i] += p[i];
-        pp[i + 1] += p[i];
-        qq[i] += q_arr[i];
-        qq[i + 1] -= q_arr[i];
+        /* Piecewise linear interpolation from cosine table (same as SILK) */
+        int f_int = nlsf >> 8;          /* 0..127 */
+        int f_frac = nlsf - (f_int << 8); /* 0..255 */
+
+        if (f_int >= LSF_COS_TAB_SZ) f_int = LSF_COS_TAB_SZ - 1;
+
+        int cos_val = silk_cos_tab_q12[f_int];               /* Q12 */
+        int delta   = silk_cos_tab_q12[f_int + 1] - cos_val; /* Q12 */
+
+        /* Linear interpolation, result in Q16 equivalent:
+         * (cos_val << 8) + delta * f_frac, then shift to get Q16-scaled double.
+         * In SILK: silk_RSHIFT_ROUND(silk_LSHIFT(cos_val,8) + delta*f_frac, 20-QA)
+         * where QA=16, so shift by 4, with rounding. */
+        double interp = (double)(cos_val * 256 + delta * f_frac);
+        /* Shift right by 4 with rounding → divide by 16 */
+        cos_LSF[ordering[k]] = (interp + 8.0) / 16.0;  /* now in QA=16 scale */
     }
 
-    /* A(z) = 0.5 * (P(z) + Q(z)) */
+    /* Generate even and odd polynomials using convolution */
+    double P[TLCS_LPC_ORDER / 2 + 1];
+    double Q_arr[TLCS_LPC_ORDER / 2 + 1];
+    nlsf2a_find_poly(P, &cos_LSF[0], dd);
+    nlsf2a_find_poly(Q_arr, &cos_LSF[1], dd);
+
+    /* Convert P, Q to LPC coefficients in QA+1 scale, then to float */
+    /* a[k] = -(Q[k+1] - Q[k]) - (P[k+1] + P[k])  (first half)
+     * a[d-k-1] = (Q[k+1] - Q[k]) - (P[k+1] + P[k])  (second half) */
+    double a_qa1[TLCS_LPC_ORDER];
+    for (int k = 0; k < dd; k++) {
+        double Ptmp = P[k + 1] + P[k];
+        double Qtmp = Q_arr[k + 1] - Q_arr[k];
+        a_qa1[k]             = -Qtmp - Ptmp;    /* QA+1 */
+        a_qa1[order - k - 1] =  Qtmp - Ptmp;    /* QA+1 */
+    }
+
+    /* Convert QA+1 to float LPC: a[i+1] = -a_qa1[i] / (1 << (QA+1)) */
+    /* QA = 16, so divide by 2^17 = 131072 */
     lpc_out[0] = 1.0f;
-    for (int i = 1; i <= order; i++) {
-        lpc_out[i] = (float)(0.5 * (pp[i] + qq[i]));
+    for (int i = 0; i < order; i++) {
+        lpc_out[i + 1] = (float)(-a_qa1[i] / 131072.0);
+    }
+
+    /* Stability check: verify LPC inverse prediction gain > 0.
+     * If unstable, apply progressive bandwidth expansion (same as SILK). */
+    for (int attempt = 0; attempt < 16; attempt++) {
+        /* Check stability by computing reflection coefficients via
+         * Schur/step-down; if any |k_i| >= 1, filter is unstable. */
+        int stable = 1;
+        double atmp[TLCS_LPC_ORDER + 1];
+        for (int i = 0; i <= order; i++) atmp[i] = (double)lpc_out[i];
+
+        for (int i = order; i >= 1; i--) {
+            double ki = atmp[i];
+            if (ki >= 1.0 || ki <= -1.0) { stable = 0; break; }
+            double div = 1.0 - ki * ki;
+            if (div <= 0.0) { stable = 0; break; }
+            double prev[TLCS_LPC_ORDER + 1];
+            for (int j = 0; j <= i; j++) prev[j] = atmp[j];
+            for (int j = 1; j < i; j++) {
+                atmp[j] = (prev[j] - ki * prev[i - j]) / div;
+            }
+        }
+
+        if (stable) break;
+
+        /* Apply bandwidth expansion to a_qa1 and reconvert */
+        double chirp = (131072.0 - (double)(2 << attempt)) / 131072.0;
+        double g = chirp;
+        for (int i = 0; i < order; i++) {
+            a_qa1[i] *= g;
+            g *= chirp;
+        }
+        lpc_out[0] = 1.0f;
+        for (int i = 0; i < order; i++) {
+            lpc_out[i + 1] = (float)(-a_qa1[i] / 131072.0);
+        }
     }
 }
 
