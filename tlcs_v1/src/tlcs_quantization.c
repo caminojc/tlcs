@@ -1,0 +1,163 @@
+/*
+ * tlcs_quantization.c — Split VQ for LSP, joint gain VQ, scalar pitch gain.
+ *
+ * LSP split-VQ: 4 splits x 256 entries x 4 dimensions each = 32 bits.
+ * Gain VQ: 64 entries of (pitch_gain, cb_gain), 6 bits.
+ * Codebooks initialised with linearly-spaced defaults (no training needed).
+ */
+#include "tlcs_config.h"
+#include "tlcs_quantization.h"
+#include "tlcs_codebooks.h"
+
+#include <math.h>
+#include <string.h>
+
+/* ================================================================== */
+/* LSP Split VQ                                                        */
+/* ================================================================== */
+
+/*
+ * LPC order 16, 4 splits of 4 elements each.
+ * Each split has 256 entries (8 bits).
+ */
+#define LSP_SPLIT_DIM   (TLCS_LPC_ORDER / TLCS_LSP_NUM_SPLITS)  /* 4 */
+
+static float lsp_codebook[TLCS_LSP_NUM_SPLITS][TLCS_LSP_CB_SIZE][LSP_SPLIT_DIM];
+static int   lsp_vq_ready = 0;
+
+void tlcs_lsp_vq_init(void)
+{
+    if (lsp_vq_ready) return;
+
+    /* Load trained codebooks from tlcs_codebooks.h */
+    const float *trained[4] = {
+        (const float *)tlcs_lsp_cb_split0,
+        (const float *)tlcs_lsp_cb_split1,
+        (const float *)tlcs_lsp_cb_split2,
+        (const float *)tlcs_lsp_cb_split3,
+    };
+    for (int s = 0; s < TLCS_LSP_NUM_SPLITS; s++) {
+        memcpy(lsp_codebook[s], trained[s],
+               (size_t)(TLCS_LSP_CB_SIZE * LSP_SPLIT_DIM) * sizeof(float));
+    }
+
+    lsp_vq_ready = 1;
+}
+
+void tlcs_lsp_vq_quantize(const float *lsp, int *indices, float *lsp_q)
+{
+    if (!lsp_vq_ready) tlcs_lsp_vq_init();
+
+    for (int s = 0; s < TLCS_LSP_NUM_SPLITS; s++) {
+        const float *sub = &lsp[s * LSP_SPLIT_DIM];
+        int best_idx = 0;
+        float best_dist = 1e30f;
+
+        for (int i = 0; i < TLCS_LSP_CB_SIZE; i++) {
+            float dist = 0.0f;
+            for (int d = 0; d < LSP_SPLIT_DIM; d++) {
+                float diff = sub[d] - lsp_codebook[s][i][d];
+                dist += diff * diff;
+            }
+            if (dist < best_dist) {
+                best_dist = dist;
+                best_idx = i;
+            }
+        }
+
+        indices[s] = best_idx;
+        for (int d = 0; d < LSP_SPLIT_DIM; d++) {
+            lsp_q[s * LSP_SPLIT_DIM + d] = lsp_codebook[s][best_idx][d];
+        }
+    }
+}
+
+void tlcs_lsp_vq_dequantize(const int *indices, float *lsp_out)
+{
+    if (!lsp_vq_ready) tlcs_lsp_vq_init();
+
+    for (int s = 0; s < TLCS_LSP_NUM_SPLITS; s++) {
+        int idx = indices[s];
+        if (idx < 0) idx = 0;
+        if (idx >= TLCS_LSP_CB_SIZE) idx = TLCS_LSP_CB_SIZE - 1;
+        for (int d = 0; d < LSP_SPLIT_DIM; d++) {
+            lsp_out[s * LSP_SPLIT_DIM + d] = lsp_codebook[s][idx][d];
+        }
+    }
+}
+
+/* ================================================================== */
+/* Joint Gain VQ                                                       */
+/* ================================================================== */
+
+/*
+ * 64 entries: 8 pitch-gain levels x 8 cb-gain levels.
+ * Each entry is (pitch_gain, cb_gain).
+ */
+static float gain_codebook[TLCS_GAIN_CB_SIZE][2];
+static int   gain_vq_ready = 0;
+
+void tlcs_gain_vq_init(void)
+{
+    if (gain_vq_ready) return;
+
+    /* Load trained gain codebook from tlcs_codebooks.h */
+    memcpy(gain_codebook, tlcs_gain_cb,
+           (size_t)(TLCS_GAIN_CB_SIZE * 2) * sizeof(float));
+
+    gain_vq_ready = 1;
+}
+
+int tlcs_gain_vq_quantize(float pg, float cg, float *q_pg, float *q_cg)
+{
+    if (!gain_vq_ready) tlcs_gain_vq_init();
+
+    int best_idx = 0;
+    float best_dist = 1e30f;
+
+    for (int i = 0; i < TLCS_GAIN_CB_SIZE; i++) {
+        float dp = pg - gain_codebook[i][0];
+        float dc = cg - gain_codebook[i][1];
+        float dist = dp * dp + dc * dc;
+        if (dist < best_dist) {
+            best_dist = dist;
+            best_idx = i;
+        }
+    }
+
+    *q_pg = gain_codebook[best_idx][0];
+    *q_cg = gain_codebook[best_idx][1];
+    return best_idx;
+}
+
+void tlcs_gain_vq_dequantize(int index, float *pg, float *cg)
+{
+    if (!gain_vq_ready) tlcs_gain_vq_init();
+
+    if (index < 0) index = 0;
+    if (index >= TLCS_GAIN_CB_SIZE) index = TLCS_GAIN_CB_SIZE - 1;
+
+    *pg = gain_codebook[index][0];
+    *cg = gain_codebook[index][1];
+}
+
+/* ================================================================== */
+/* Scalar pitch gain quantizer                                         */
+/* ================================================================== */
+
+int tlcs_pitch_gain_quantize(float gain)
+{
+    int levels = 1 << TLCS_PITCH_GAIN_BITS;  /* 16 */
+    int idx = (int)roundf(gain / 1.2f * (float)(levels - 1));
+    if (idx < 0) idx = 0;
+    if (idx >= levels) idx = levels - 1;
+    return idx;
+}
+
+float tlcs_pitch_gain_dequantize(int index)
+{
+    int levels = 1 << TLCS_PITCH_GAIN_BITS;
+    if (index < 0) index = 0;
+    if (index >= levels) index = levels - 1;
+    return 1.2f * (float)index / (float)(levels - 1);
+}

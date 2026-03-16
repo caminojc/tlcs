@@ -1,10 +1,20 @@
 #include "tlcs_lpc.h"
 #include <math.h>
 #include <string.h>
+#include <stdlib.h>
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
+
+/* Runtime-tunable pre-emphasis coefficient (default 0.0) */
+float tlcs_preemph_coeff_ = 0.0f;
+
+void tlcs_preemph_init(void)
+{
+    const char *v = getenv("TLCS_PREEMPH");
+    if (v) tlcs_preemph_coeff_ = (float)atof(v);
+}
 
 /* ══════════════════════════════════════════════════════════════════
  *  Pre-emphasis / De-emphasis

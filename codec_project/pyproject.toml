@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "celp-codec-optimizer"
+version = "0.1.0"
+description = "Perceptual quality optimization for a pure-DSP CELP speech codec"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+
+dependencies = [
+    "numpy>=1.23",
+    "scipy>=1.10",
+    "soundfile>=0.12",
+    "torch>=2.0",
+    "torchaudio>=2.0",
+    "transformers>=4.30",
+    "cma>=3.3",
+    "scikit-optimize>=0.9",
+    "pesq>=0.0.4",
+    "matplotlib>=3.7",
+    "tqdm>=4.65",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "ruff>=0.1",
+]
+
+[project.scripts]
+celp-pipeline = "pipeline.run_pipeline:main"
+celp-optimize = "optimizer.run_optimization:main"
+celp-baseline = "pipeline.baseline_eval:main"
+celp-download = "pipeline.download_data:main"
+
+[tool.setuptools.packages.find]
+include = ["codec*", "evaluator*", "optimizer*", "pipeline*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"

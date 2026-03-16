@@ -53,6 +53,13 @@ typedef enum {
     TLCS_MODE_SILENCE    = 3
 } tlcs_frame_mode;
 
+/* ── Codec mode (1 bit in bitstream, HR only) ─────────────────── */
+
+typedef enum {
+    TLCS_CODEC_MODE_S    = 0,   /* CELP (speech/predictive) */
+    TLCS_CODEC_MODE_T    = 1    /* TCX (transform) */
+} tlcs_codec_mode;
+
 /* ── Codec configuration ───────────────────────────────────────── */
 
 typedef struct {
@@ -117,6 +124,13 @@ typedef struct {
     /* Band-split state (WB mode) */
     float    qmf_ana_mem[TLCS_QMF_TAPS_MAX];
     int16_t  hb_prev_lsf[8];
+
+    /* TCX mode state */
+    int32_t  prev_codec_mode;                       /* previous frame's codec mode */
+    int32_t  mode_hold_count;                       /* hysteresis counter for mode switching */
+    float    mdct_overlap[TLCS_MAX_FRAME_SIZE];     /* MDCT forward overlap (prev frame speech) */
+    float    imdct_recon_overlap[TLCS_MAX_FRAME_SIZE]; /* IMDCT overlap for encoder-side reconstruction */
+    uint32_t recon_noise_seed;                      /* noise seed for encoder-side reconstruction */
 } tlcs_encoder;
 
 /* ── Decoder state ─────────────────────────────────────────────── */
@@ -189,6 +203,11 @@ typedef struct {
     int16_t  hb_prev_lsf[8];
     float    hb_synth_mem[8];
     uint32_t hb_rng_state;
+
+    /* TCX mode state */
+    int32_t  prev_codec_mode;                       /* previous frame's codec mode */
+    float    mdct_overlap[TLCS_MAX_FRAME_SIZE];     /* IMDCT overlap-add buffer */
+    float    tcx_synth_mem[TLCS_LPC_ORDER_MAX];     /* LPC synthesis memory for TCX */
 } tlcs_decoder;
 
 #endif /* TLCS_TYPES_H */

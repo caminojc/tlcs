@@ -7,9 +7,6 @@
 #include "../bitstream/tlcs_bitstream.h"
 #include "../entropy/tlcs_range_coder.h"
 #include "../entropy/tlcs_ec_models.h"
-#include "tlcs_mdct.h"
-#include "tlcs_tcx.h"
-#include "tlcs_mode.h"
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -198,9 +195,10 @@ static void celp_encode_core(tlcs_encoder *enc,
             (size_t)TLCS_MAX_PITCH_LAG * sizeof(float));
     memset(innov_hist + TLCS_MAX_PITCH_LAG, 0, (size_t)n * sizeof(float));
 
-    /* Pre-fill excitation with residual for better ACB search.
-     * Only for HR (subfr<=40) where lag >= subfr always holds,
-     * avoiding enc/dec mismatch that destroys female voice quality. */
+    /* For HR mode (subfr<=40): pre-fill with residual for better ACB search.
+     * The minor enc/dec mismatch for lag < subfr is outweighed by better params.
+     * For LR mode (subfr=80): do NOT pre-fill — the mismatch for lags < 80
+     * (common for female pitch) causes significant quality loss. */
     if (subfr <= 40) {
         for (int32_t i = 0; i < n; i++)
             exc[TLCS_MAX_PITCH_LAG + i] = residual[i];
@@ -239,14 +237,14 @@ static void celp_encode_core(tlcs_encoder *enc,
     memcpy(hw_synth_mem, enc->wgt_synth_mem, (size_t)order * sizeof(float));
     memcpy(hw_wgt_mem, enc->wgt_mem, (size_t)order * sizeof(float));
 
-    /* ── FFT perceptual filter for VLR/LR (SMPL-style Mel masking) ── */
+    /* ── FFT perceptual filter for VLR/LR (SMPL-style masking) ──── */
     float b_perc[TLCS_MAX_SUBFR_SIZE];
-    int32_t perc_order = order;  /* match LPC order for memory consistency */
+    int32_t perc_order = 24;
     int use_perc = 0;
-    if (0) {
+    if (0 && subfr >= 160) {
         int32_t rc = tlcs_compute_perceptual_filter(
             enc->speech_buf + TLCS_MAX_PITCH_LAG, n,
-            (float)(enc->cfg.sample_rate), b_perc, perc_order);
+            (float)(enc->cfg.sample_rate / 2), b_perc, perc_order);
         if (rc == 0) use_perc = 1;
     }
 
@@ -296,21 +294,12 @@ static void celp_encode_core(tlcs_encoder *enc,
 
         float zir[TLCS_MAX_SUBFR_SIZE];
         if (use_perc) {
-            /* ZIR for perceptual filter: apply B_perc(z) FIR to ZIR of 1/A(z)
-             * Use synth_mem_save for past synthesis output at subframe boundary */
+            /* ZIR for perceptual filter: apply B_perc(z) FIR to ZIR of 1/A(z) */
             for (int32_t j = 0; j < subfr; j++) {
                 zir[j] = zir_synth[j]; /* b_perc[0] = 1.0 */
                 int32_t kmax = (j < perc_order) ? j : perc_order;
-                for (int32_t k = 1; k <= kmax; k++) {
-                    float past;
-                    if (j - k >= 0)
-                        past = zir_synth[j - k];
-                    else if (k - 1 - j < order)
-                        past = synth_mem_save[k - 1 - j];
-                    else
-                        past = 0.0f;
-                    zir[j] += b_perc[k] * past;
-                }
+                for (int32_t k = 1; k <= kmax; k++)
+                    zir[j] += b_perc[k] * zir_synth[j - k];
             }
         } else {
             float zir_fir[TLCS_MAX_SUBFR_SIZE];
@@ -375,24 +364,41 @@ static void celp_encode_core(tlcs_encoder *enc,
 
             /* Algebraic codebook search with pitch-adaptive tilt */
             float h_w_tilt[TLCS_MAX_SUBFR_SIZE];
+            float h_w_sharp[TLCS_MAX_SUBFR_SIZE];
             float *h_search = h_w_tilt;
             {
                 float w_innov_tilt[TLCS_MAX_SUBFR_SIZE];
                 float tilt;
                 if (subfr >= 80) {
-                    /* LR mode: no tilt for sparse pulses. */
+                    /* LR mode: reduce HF tilt boost — sparse pulses on
+                     * long subframes can't faithfully reproduce HF details,
+                     * and chasing them creates scratchy artifacts. */
                     tilt = 0.0f;
                 } else {
                     tilt = -0.3f;
                     if (cl_lag < 60)       tilt = -0.10f;
                     else if (cl_lag < 90)  tilt = -0.20f;
                 }
-                float *h_base = h_w;
                 w_innov_tilt[0] = w_innov[0];
-                h_w_tilt[0] = h_base[0];
+                h_w_tilt[0] = h_w[0];
                 for (int32_t i = 1; i < subfr; i++) {
                     w_innov_tilt[i] = w_innov[i] + tilt * w_innov[i - 1];
-                    h_w_tilt[i] = h_base[i] + tilt * h_base[i - 1];
+                    h_w_tilt[i] = h_w[i] + tilt * h_w[i - 1];
+                }
+
+                /* In-search pitch sharpening for VLR: augment h_search
+                 * with pitch echoes so the codebook search inherently
+                 * places pulses where their pitch-periodic copies help.
+                 * Unlike post-search sharpening, this correctly optimizes
+                 * pulse positions WITH their echoes in the loop. */
+                if (subfr >= 160 && cl_lag >= 20) {
+                    float sharp_b = 0.80f;
+                    for (int32_t i = 0; i < subfr; i++) {
+                        h_w_sharp[i] = h_w_tilt[i];
+                        if (i >= cl_lag)
+                            h_w_sharp[i] += sharp_b * h_w_sharp[i - cl_lag];
+                    }
+                    h_search = h_w_sharp;
                 }
 
                 tlcs_cb_search_tree(w_innov_tilt, h_search, &cb_cfg, &cb_entries[sf]);
@@ -408,7 +414,10 @@ static void celp_encode_core(tlcs_encoder *enc,
                         c_unit[abs_pos] = (float)cb_entries[sf].pulse_sign[p];
                 }
 
-                float *h_gain = h_w;
+                /* Use pitch-sharpened h_w for gain optimization when
+                 * in-search sharpening is active, so the gain correctly
+                 * accounts for the echoed innovation energy. */
+                float *h_gain = (h_search == h_w_sharp) ? h_w_sharp : h_w;
                 float w_cb[TLCS_MAX_SUBFR_SIZE];
                 for (int32_t j = 0; j < subfr; j++) {
                     w_cb[j] = 0.0f;
@@ -492,19 +501,21 @@ static void celp_encode_core(tlcs_encoder *enc,
         float innovation[TLCS_MAX_SUBFR_SIZE];
         tlcs_cb_build_innovation(&cb_entries[sf], &cb_cfg, innovation, subfr);
 
-        /* Pitch sharpening — must match decoder exactly.
-         * LR/VLR (subfr>=80): SMPL-style forward sharpening at beta=0.95
-         * for voiced frames. Applied within-subframe only.
-         * HR (subfr<80): moderate cross-subframe sharpening. */
+        /* Pitch sharpening with cross-subframe innovation history.
+         * Disabled for LR mode (subfr==80) — decoder doesn't apply these.
+         * Enabled for HR (subfr<80) with moderate beta, and VLR (subfr>=160)
+         * with aggressive SMPL-style beta=0.95. */
         float gq = g0;
         int32_t innov_off = TLCS_MAX_PITCH_LAG + sf_offset;
         for (int32_t i = 0; i < subfr; i++)
             innov_hist[innov_off + i] = innovation[i];
 
-        if (cl_lag >= 20 && subfr < 80 && gq >= 0.6f) {
-            /* HR: existing cross-subframe sharpening */
+        if (cl_lag >= 20 && (subfr < 80 && gq >= 0.6f)) {
             float beta;
-            if (cl_lag < subfr) {
+            if (subfr >= 160) {
+                /* VLR: SMPL-style unconditional pitch sharpening */
+                beta = 0.95f;
+            } else if (cl_lag < subfr) {
                 beta = gq * 0.4f;
                 if (beta > 0.4f) beta = 0.4f;
             } else if (cl_lag < 100) {
@@ -522,9 +533,22 @@ static void celp_encode_core(tlcs_encoder *enc,
             }
         }
 
-        /* Store sharpened innovation in history */
-        for (int32_t i = 0; i < subfr; i++)
-            innov_hist[innov_off + i] = innovation[i];
+        /* For VLR/LR: keep unsharpened innovation in history to prevent
+         * energy buildup from compounding sharpened contributions across
+         * frames.  For HR: store sharpened (small beta, no instability). */
+        if (subfr < 160) {
+            for (int32_t i = 0; i < subfr; i++)
+                innov_hist[innov_off + i] = innovation[i];
+        }
+
+        /* Within-subframe pitch sharpening for VLR: apply recursive
+         * echoes to innovation to match what the decoder will do.
+         * This is the dual of using h_sharp in the codebook search. */
+        if (subfr >= 160 && cl_lag >= 20) {
+            float sharp_b = 0.80f;
+            for (int32_t i = cl_lag; i < subfr; i++)
+                innovation[i] += sharp_b * innovation[i - cl_lag];
+        }
 
         /* Phase dispersion: spread sparse pulse energy.
          * Disabled for LR mode — hurts male voice PESQ (-0.14). */
@@ -567,8 +591,8 @@ static void celp_encode_core(tlcs_encoder *enc,
         tlcs_synthesis_filter(a_sf, order, err, err_synth,
                               subfr, hw_synth_mem);
 
-        if (!use_perc) {
-            /* γ₁/γ₂ cascade: update wgt_mem (only for standard weighting) */
+        /* γ₁/γ₂ cascade: update wgt_mem */
+        {
             float err_fir[TLCS_MAX_SUBFR_SIZE];
             for (int32_t j = 0; j < subfr; j++) {
                 err_fir[j] = err_synth[j];
@@ -585,8 +609,6 @@ static void celp_encode_core(tlcs_encoder *enc,
             tlcs_synthesis_filter(a_g2, order, err_fir, err_wgt,
                                   subfr, hw_wgt_mem);
         }
-        /* FFT masking: B_perc is FIR — no separate state needed.
-         * hw_synth_mem (1/A(z) state) already updated above. */
 
         pitch_lags[sf] = cl_lag;
         pitch_fracs[sf] = cl_frac;
@@ -1291,309 +1313,6 @@ static tlcs_status encode_wb_bandsplit(tlcs_encoder *enc,
 }
 
 /* ══════════════════════════════════════════════════════════════════
- *  TCX Encoder (Mode T)
- *  Pre-emphasis -> LPC -> MDCT -> spectral quantization -> range coding.
- *  Called with bsw positioned after mode bit.
- * ══════════════════════════════════════════════════════════════════ */
-
-static tlcs_status encode_tcx(tlcs_encoder *enc,
-                               const int16_t *pcm_in,
-                               tlcs_bs_writer *bsw,
-                               uint8_t *bitstream_out,
-                               int32_t *bytes_written)
-{
-    const int32_t n     = enc->cfg.frame_size;
-    const int32_t order = enc->cfg.lpc_order;
-
-    /* ── Pre-emphasis ────────────────────────────────── */
-    float speech[TLCS_MAX_FRAME_SIZE];
-    float preemph_mem_f = (float)enc->preemph_mem;
-    for (int32_t i = 0; i < n; i++) {
-        float s = (float)pcm_in[i] - TLCS_PREEMPH_COEFF * preemph_mem_f;
-        preemph_mem_f = (float)pcm_in[i];
-        speech[i] = s;
-    }
-    enc->preemph_mem = (int16_t)preemph_mem_f;
-
-    /* ── Speech history update (for LPC window) ────── */
-    memmove(enc->speech_buf,
-            enc->speech_buf + n,
-            (size_t)TLCS_MAX_PITCH_LAG * sizeof(float));
-    memcpy(enc->speech_buf + TLCS_MAX_PITCH_LAG,
-           speech, (size_t)n * sizeof(float));
-
-    /* ── LPC analysis with asymmetric window ───────── */
-    int32_t win_prev = n / 5;
-    int32_t win_ones_init = n * 3 / 8;
-    int32_t win1_len = win_prev + n - win_ones_init;
-    int32_t win3_len = n / 10;
-    int32_t win_ones = (win_prev + n) - win1_len - win3_len;
-    int32_t ana_len = win1_len + win_ones + win3_len;
-
-    float extended[TLCS_MAX_PITCH_LAG + TLCS_MAX_FRAME_SIZE];
-    memcpy(extended, &enc->speech_buf[TLCS_MAX_PITCH_LAG - win_prev],
-           (size_t)ana_len * sizeof(float));
-
-    float windowed[TLCS_MAX_PITCH_LAG + TLCS_MAX_FRAME_SIZE];
-    for (int32_t i = 0; i < win1_len; i++) {
-        float w = sinf((float)(i + 1) / (float)(win1_len + 1) * (float)M_PI * 0.5f);
-        windowed[i] = extended[i] * w;
-    }
-    for (int32_t i = 0; i < win_ones; i++)
-        windowed[win1_len + i] = extended[win1_len + i];
-    for (int32_t i = 0; i < win3_len; i++) {
-        float w = cosf((float)(i + 1) / (float)(win3_len + 1) * (float)M_PI * 0.5f);
-        windowed[win1_len + win_ones + i] = extended[win1_len + win_ones + i] * w;
-    }
-
-    float r[TLCS_LPC_ORDER_MAX + 1];
-    tlcs_autocorrelation(windowed, ana_len, r, order);
-
-    float a[TLCS_LPC_ORDER_MAX + 1];
-    tlcs_levinson(r, order, a, NULL);
-
-    /* Bandwidth expansion for LR/VLR — minimal for TCX (sharper LPC) */
-    if (enc->cfg.subfr_size >= 80) {
-        float g = 1.0f;
-        for (int32_t k = 1; k <= order; k++) {
-            g *= 0.996f;
-            a[k] *= g;
-        }
-    }
-
-    float lsf[TLCS_LPC_ORDER_MAX];
-    int lsf_ok = tlcs_lpc_to_lsf(a, order, lsf);
-    if (lsf_ok != 0) {
-        for (int32_t i = 0; i < order; i++)
-            lsf[i] = (float)enc->prev_lsf[i] / 5000.0f;
-    }
-    tlcs_lsf_stabilize(lsf, order);
-
-    /* ── LSF VQ quantization (always VQ for TCX) ───── */
-    float lsf_pred[TLCS_LPC_ORDER_MAX];
-    for (int32_t i = 0; i < order; i++)
-        lsf_pred[i] = (float)enc->prev_lsf[i] / 5000.0f;
-
-    int32_t lsf_bits = enc->cfg.lsf_bits;
-    int32_t vq_size = 1 << lsf_bits;
-    int32_t vq_idx[LSF_VQ_NUM_SPLITS];
-    float delta_raw[TLCS_LPC_ORDER_MAX];
-    for (int32_t i = 0; i < order; i++)
-        delta_raw[i] = lsf[i] - lsf_pred[i];
-    float delta_q[TLCS_LPC_ORDER_MAX];
-    tlcs_lsf_vq_encode_n(delta_raw, order, vq_idx, delta_q, vq_size);
-
-    float lsf_q[TLCS_LPC_ORDER_MAX];
-    for (int32_t i = 0; i < order; i++)
-        lsf_q[i] = lsf_pred[i] + delta_q[i];
-    tlcs_lsf_stabilize(lsf_q, order);
-
-    float a_q[TLCS_LPC_ORDER_MAX + 1];
-    tlcs_lsf_to_lpc(lsf_q, order, a_q);
-
-    /* Write LSF VQ indices to bitstream */
-    int32_t vq_mask = (1 << lsf_bits) - 1;
-    for (int32_t s = 0; s < LSF_VQ_NUM_SPLITS; s++)
-        tlcs_bs_write(bsw, (uint32_t)(vq_idx[s] & vq_mask), lsf_bits);
-
-    /* ── Forward MDCT ──────────────────────────────── */
-    float mdct_spec[TLCS_MAX_FRAME_SIZE];
-    tlcs_mdct_forward(enc->mdct_overlap, speech, mdct_spec, n);
-    /* Save current speech for next frame's MDCT overlap */
-    memcpy(enc->mdct_overlap, speech, (size_t)n * sizeof(float));
-
-    /* ── Compute LPC spectral envelope ─────────────── */
-    float lpc_env[TLCS_MAX_FRAME_SIZE];
-    tlcs_tcx_lpc_envelope(a_q, order, lpc_env, n);
-
-    /* ── Rate control ──────────────────────────────── */
-    int32_t lsf_total_bits = LSF_VQ_NUM_SPLITS * lsf_bits;
-    /* Header: mode(1) + LSF VQ + global_gain(7) + step(3) — no band gains */
-    int32_t hdr_bits = 1 + lsf_total_bits + TCX_GAIN_BITS + TCX_STEP_BITS;
-    int32_t hdr_bytes = (hdr_bits + 7) / 8;
-
-    int32_t frame_bytes_budget = (enc->cfg.bitrate / 50 + 7) / 8;
-    if (frame_bytes_budget < 18) frame_bytes_budget = 18;
-    int32_t rc_bytes_budget = frame_bytes_budget - hdr_bytes;
-    if (rc_bytes_budget < 4) rc_bytes_budget = 4;
-
-    int32_t is_lr = (enc->cfg.bitrate < TLCS_LR_BITRATE_THRESHOLD);
-    int32_t is_vlr = (enc->cfg.bitrate < TLCS_VLR_BITRATE_THRESHOLD);
-    int32_t rc_mult = is_lr ? (is_vlr ? 7 : 8) : 2;
-    int32_t num_rc_bins = rc_bytes_budget * rc_mult;
-    if (num_rc_bins > n) num_rc_bins = n;
-
-    float best_dist = 1e30f;
-    int32_t best_step = 0;
-    tlcs_tcx_params best_params;
-    memset(&best_params, 0, sizeof(best_params));
-
-    for (int32_t si = 0; si < TCX_STEP_LEVELS; si++) {
-        tlcs_tcx_params trial;
-        memset(&trial, 0, sizeof(trial));
-        float dist = tlcs_tcx_encode(mdct_spec, lpc_env, n, si, &trial);
-
-        /* Trial range-encode with global CDF to check budget fit */
-        uint16_t trial_cdf[TCX_SPEC_NSYM + 1];
-        tlcs_tcx_compute_cdf(si, trial_cdf);
-
-        uint8_t trial_buf[TLCS_MAX_FRAME_BYTES];
-        tlcs_rc_encoder trial_rc;
-        tlcs_rc_enc_init(&trial_rc, trial_buf, (int32_t)sizeof(trial_buf));
-
-        for (int32_t i = 0; i < num_rc_bins; i++) {
-            int32_t sym = trial.quant[i] + TCX_QUANT_MAX;
-            if (sym < 0) sym = 0;
-            if (sym >= TCX_SPEC_NSYM) sym = TCX_SPEC_NSYM - 1;
-            tlcs_rc_enc_symbol(&trial_rc, sym, trial_cdf, TCX_SPEC_NSYM);
-        }
-        int32_t rc_bytes_used = tlcs_rc_enc_flush(&trial_rc);
-
-        if (rc_bytes_used > rc_bytes_budget) continue;
-
-        if (dist < best_dist) {
-            best_dist = dist;
-            best_step = si;
-            memcpy(&best_params, &trial, sizeof(trial));
-        }
-    }
-
-    /* If no step fit, use coarsest */
-    if (best_dist >= 1e30f) {
-        best_step = TCX_STEP_LEVELS - 1;
-        tlcs_tcx_encode(mdct_spec, lpc_env, n, best_step, &best_params);
-    }
-    best_params.num_coded_bins = num_rc_bins;
-
-    /* ── Write header: gain + step (no band gains) ── */
-    tlcs_bs_write(bsw, (uint32_t)best_params.global_gain_idx, TCX_GAIN_BITS);
-    tlcs_bs_write(bsw, (uint32_t)best_params.step_idx, TCX_STEP_BITS);
-
-    int32_t header_bytes_written = tlcs_bs_writer_flush(bsw);
-
-    /* ── Range-encode spectral bins ────────────────── */
-    uint16_t cdf[TCX_SPEC_NSYM + 1];
-    tlcs_tcx_compute_cdf(best_step, cdf);
-
-    tlcs_rc_encoder rc;
-    tlcs_rc_enc_init(&rc, bitstream_out + header_bytes_written,
-                     TLCS_MAX_FRAME_BYTES - header_bytes_written);
-
-    for (int32_t i = 0; i < num_rc_bins; i++) {
-        int32_t sym = best_params.quant[i] + TCX_QUANT_MAX;
-        if (sym < 0) sym = 0;
-        if (sym >= TCX_SPEC_NSYM) sym = TCX_SPEC_NSYM - 1;
-        tlcs_rc_enc_symbol(&rc, sym, cdf, TCX_SPEC_NSYM);
-    }
-    int32_t rc_bytes = tlcs_rc_enc_flush(&rc);
-    *bytes_written = header_bytes_written + rc_bytes;
-
-    float recon_spec[TLCS_MAX_FRAME_SIZE];
-    tlcs_tcx_decode(&best_params, lpc_env, recon_spec, &enc->recon_noise_seed);
-
-    float recon_time[TLCS_MAX_FRAME_SIZE];
-    tlcs_mdct_inverse(recon_spec, recon_time, enc->imdct_recon_overlap, n);
-
-    /* Update synth_mem with reconstruction tail */
-    for (int32_t i = 0; i < order; i++)
-        enc->synth_mem[i] = recon_time[n - order + i];
-
-    /* ── Update prev LSFs ──────────────────────────── */
-    float lsf_q_final[TLCS_LPC_ORDER_MAX];
-    {
-        int32_t vq_idx_final[LSF_VQ_NUM_SPLITS];
-        for (int32_t i = 0; i < LSF_VQ_NUM_SPLITS; i++)
-            vq_idx_final[i] = vq_idx[i];
-        float delta_q_final[TLCS_LPC_ORDER_MAX];
-        tlcs_lsf_vq_decode_n(vq_idx_final, order, delta_q_final, vq_size);
-        for (int32_t i = 0; i < order; i++)
-            lsf_q_final[i] = lsf_pred[i] + delta_q_final[i];
-    }
-    tlcs_lsf_stabilize(lsf_q_final, order);
-    for (int32_t i = 0; i < order; i++) {
-        enc->prev_prev_lsf[i] = enc->prev_lsf[i];
-        enc->prev_lsf[i] = (int16_t)(lsf_q_final[i] * 5000.0f);
-    }
-
-    enc->prev_codec_mode = TLCS_CODEC_MODE_T;
-    enc->frame_count++;
-    return TLCS_OK;
-}
-
-/* ══════════════════════════════════════════════════════════════════
- *  HR Hybrid Encoder: mode decision + Mode T (TCX) or Mode S (CELP).
- * ══════════════════════════════════════════════════════════════════ */
-
-static tlcs_status encode_hr_hybrid(tlcs_encoder *enc,
-                                     const int16_t *pcm_in,
-                                     uint8_t *bitstream_out,
-                                     int32_t *bytes_written)
-{
-    const int32_t n = enc->cfg.frame_size;
-
-    /* Pre-emphasize for mode decision (temporary, not saved to state) */
-    float speech_tmp[TLCS_MAX_FRAME_SIZE];
-    float pe_mem = (float)enc->preemph_mem;
-    for (int32_t i = 0; i < n; i++) {
-        speech_tmp[i] = (float)pcm_in[i] - TLCS_PREEMPH_COEFF * pe_mem;
-        pe_mem = (float)pcm_in[i];
-    }
-
-    int32_t mode = tlcs_mode_decide(speech_tmp, n, enc->cfg.bitrate,
-                                     enc->prev_codec_mode,
-                                     &enc->mode_hold_count);
-
-    tlcs_bs_writer bsw;
-    tlcs_bs_writer_init(&bsw, bitstream_out, TLCS_MAX_FRAME_BYTES);
-    tlcs_bs_write(&bsw, (uint32_t)mode, 1);
-
-    if (mode == TLCS_CODEC_MODE_T) {
-        return encode_tcx(enc, pcm_in, &bsw, bitstream_out, bytes_written);
-    }
-
-    /* Mode S (CELP): currently dead code — mode decision always returns T.
-     * Fall back to encode_direct which creates its own bitstream. */
-    return encode_direct(enc, pcm_in, bitstream_out, bytes_written);
-}
-
-/* ══════════════════════════════════════════════════════════════════
- *  LR Hybrid Encoder: mode decision + Mode T (TCX) or Mode S (CELP).
- *  Per SMPL-NEXT Tier B: adaptive S+T at 5-12 kbps.
- * ══════════════════════════════════════════════════════════════════ */
-
-static tlcs_status encode_lr_hybrid(tlcs_encoder *enc,
-                                     const int16_t *pcm_in,
-                                     uint8_t *bitstream_out,
-                                     int32_t *bytes_written)
-{
-    const int32_t n = enc->cfg.frame_size;
-
-    /* Pre-emphasize for mode decision (temporary) */
-    float speech_tmp[TLCS_MAX_FRAME_SIZE];
-    float pe_mem = (float)enc->preemph_mem;
-    for (int32_t i = 0; i < n; i++) {
-        speech_tmp[i] = (float)pcm_in[i] - TLCS_PREEMPH_COEFF * pe_mem;
-        pe_mem = (float)pcm_in[i];
-    }
-
-    int32_t mode = tlcs_mode_decide(speech_tmp, n, enc->cfg.bitrate,
-                                     enc->prev_codec_mode,
-                                     &enc->mode_hold_count);
-
-    tlcs_bs_writer bsw;
-    tlcs_bs_writer_init(&bsw, bitstream_out, TLCS_MAX_FRAME_BYTES);
-    tlcs_bs_write(&bsw, (uint32_t)mode, 1);
-
-    if (mode == TLCS_CODEC_MODE_T) {
-        return encode_tcx(enc, pcm_in, &bsw, bitstream_out, bytes_written);
-    }
-
-    /* Mode S (CELP): currently dead code — mode decision always returns T.
-     * Fall back to encode_lowrate which creates its own bitstream. */
-    return encode_lowrate(enc, pcm_in, bitstream_out, bytes_written);
-}
-
-/* ══════════════════════════════════════════════════════════════════
  *  Public API
  * ══════════════════════════════════════════════════════════════════ */
 
@@ -1624,10 +1343,10 @@ tlcs_status tlcs_encode(tlcs_encoder *enc,
     if (enc->cfg.bitrate < TLCS_LR_BITRATE_THRESHOLD) {
         if (enc->cfg.use_ec)
             return encode_lowrate_ec(enc, pcm_in, bitstream_out, bytes_written);
-        return encode_lr_hybrid(enc, pcm_in, bitstream_out, bytes_written);
+        return encode_lowrate(enc, pcm_in, bitstream_out, bytes_written);
     }
 
     if (enc->cfg.use_ec)
         return encode_direct_ec(enc, pcm_in, bitstream_out, bytes_written);
-    return encode_hr_hybrid(enc, pcm_in, bitstream_out, bytes_written);
+    return encode_direct(enc, pcm_in, bitstream_out, bytes_written);
 }

@@ -1,0 +1,14 @@
+{
+  "n_frames": 4997,
+  "lsp_shape": [
+    4997,
+    10
+  ],
+  "gain_shape": [
+    4997,
+    2
+  ],
+  "lsp_normalized_distortion": 0.019686,
+  "gain_normalized_distortion": 0.001367,
+  "total_time_s": 5.5
+}

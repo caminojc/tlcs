@@ -1,0 +1,22 @@
+# Core
+numpy>=1.23
+scipy>=1.10
+
+# Audio
+soundfile>=0.12
+torchaudio>=2.0
+
+# Deep learning (evaluator)
+torch>=2.0
+transformers>=4.30
+
+# Optimization
+cma>=3.3
+scikit-optimize>=0.9
+
+# Evaluation metrics
+pesq>=0.0.4
+
+# Utilities
+matplotlib>=3.7
+tqdm>=4.65

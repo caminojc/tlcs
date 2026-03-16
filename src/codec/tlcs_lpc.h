@@ -3,8 +3,11 @@
 
 #include "tlcs/tlcs_types.h"
 
-/* Pre-emphasis coefficient */
-#define TLCS_PREEMPH_COEFF  0.0f
+/* Pre-emphasis coefficient (runtime-tunable via TLCS_PREEMPH env var) */
+extern float tlcs_preemph_coeff_;
+#define TLCS_PREEMPH_COEFF  tlcs_preemph_coeff_
+
+void tlcs_preemph_init(void);
 
 /* LSF quantization bits per coefficient */
 #define TLCS_LSF_BITS       7

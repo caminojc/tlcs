@@ -1,0 +1,139 @@
+#!/usr/bin/env python3
+"""Build blind MOS rating page for 50 codec variants."""
+import json, os, random
+
+PROJECT = "/Users/jonathanchristensen/CLionProjects/TLCS"
+AB_DIR = os.path.join(PROJECT, "eval", "ab_test")
+configs = json.load(open(os.path.join(PROJECT, "tools", "ab_configs.json")))
+
+order = list(range(50))
+random.seed(7)
+random.shuffle(order)
+
+json.dump({"presentation_order": order, "configs": configs},
+          open(os.path.join(AB_DIR, "blind_key.json"), "w"), indent=2)
+
+order_js = json.dumps(order)
+
+html = f"""<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TLCS Blind Quality Rating</title>
+<style>
+*{{margin:0;padding:0;box-sizing:border-box}}
+body{{font-family:-apple-system,system-ui,sans-serif;background:#0a0a0a;color:#e0e0e0;padding:1.5rem;max-width:700px;margin:0 auto}}
+h1{{font-size:1.8rem;margin-bottom:0.3rem;color:#fff}}
+.sub{{color:#888;margin-bottom:1.5rem;font-size:0.9rem}}
+.progress{{background:#222;border-radius:8px;padding:0.8rem 1rem;margin-bottom:1.5rem}}
+.bar{{height:6px;background:#333;border-radius:3px;margin-top:0.5rem}}
+.fill{{height:6px;background:#60a5fa;border-radius:3px;transition:width 0.3s}}
+.sample{{background:#111;border-radius:10px;padding:1.2rem;margin-bottom:1rem}}
+.ref-box{{background:#0a1520;border:1px solid #1a3a5a;border-radius:8px;padding:1rem;margin-bottom:1rem}}
+.ref-box .label{{color:#60a5fa;font-size:0.8rem;margin-bottom:0.4rem}}
+.test-box{{margin-bottom:0.8rem}}
+.test-box .label{{color:#ccc;font-weight:600;margin-bottom:0.4rem}}
+audio{{width:100%;height:36px}}
+.stars{{display:flex;gap:0.5rem;margin:1rem 0;justify-content:center}}
+.star{{width:48px;height:48px;border-radius:8px;border:2px solid #333;display:flex;align-items:center;justify-content:center;font-size:1.3rem;font-weight:700;cursor:pointer;transition:all 0.15s;user-select:none}}
+.star:hover{{border-color:#60a5fa;background:#1a2a3a}}
+.star.active{{border-color:#fbbf24;background:#2a2a1a;color:#fbbf24}}
+.star-labels{{display:flex;justify-content:space-between;font-size:0.7rem;color:#666;padding:0 0.5rem}}
+.btn-row{{display:flex;gap:1rem;justify-content:center;margin-top:0.5rem}}
+.btn{{padding:0.5rem 2rem;border-radius:6px;border:none;font-size:1rem;cursor:pointer;font-weight:600}}
+.btn-next{{background:#60a5fa;color:#000}}
+.btn-next:disabled{{background:#333;color:#666;cursor:not-allowed}}
+.btn-skip{{background:#222;color:#888}}
+.done{{display:none;text-align:center;padding:2rem}}
+.done h2{{margin-bottom:1rem}}
+#dl-btn{{background:#4ade80;color:#000;padding:0.8rem 3rem;border:none;border-radius:8px;font-size:1.1rem;font-weight:700;cursor:pointer;margin-top:1rem}}
+</style></head><body>
+<h1>TLCS Blind Quality Test</h1>
+<p class="sub">Listen to the original, then rate each coded sample 1-5 for naturalness. All samples randomized. Use headphones.</p>
+
+<div class="progress">
+  <span id="prog">Sample 1 / 50</span>
+  <div class="bar"><div class="fill" id="fill" style="width:0%"></div></div>
+</div>
+
+<div id="container"></div>
+<div class="done" id="done">
+  <h2>All done! Thanks.</h2>
+  <p id="summary"></p>
+  <button id="dl-btn" onclick="download()">Download Ratings</button>
+</div>
+
+<script>
+const ORDER = {order_js};
+let idx = 0, cur = 0, ratings = [];
+
+function render() {{
+  if (idx >= ORDER.length) {{ finish(); return; }}
+  const vid = ORDER[idx];
+  document.getElementById('prog').textContent = 'Sample ' + (idx+1) + ' / ' + ORDER.length;
+  document.getElementById('fill').style.width = (idx/ORDER.length*100) + '%';
+  const c = document.getElementById('container');
+  c.innerHTML = '<div class="sample">' +
+    '<div class="ref-box"><div class="label">ORIGINAL (reference)</div>' +
+    '<audio controls preload="auto"><source src="audio/original.wav" type="audio/wav"></audio></div>' +
+    '<div class="test-box"><div class="label">Sample #' + (idx+1) + ' (rate this)</div>' +
+    '<audio controls preload="auto"><source src="audio/v' + vid + '.wav" type="audio/wav"></audio></div>' +
+    '<div class="star-labels"><span>Bad</span><span>Poor</span><span>Fair</span><span>Good</span><span>Excellent</span></div>' +
+    '<div class="stars">' +
+    [1,2,3,4,5].map(n => '<div class="star" data-v="'+n+'" onclick="rate('+n+')">'+n+'</div>').join('') +
+    '</div>' +
+    '<div class="btn-row">' +
+    '<button class="btn btn-skip" onclick="skip()">Skip</button>' +
+    '<button class="btn btn-next" id="nxt" onclick="nxt()" disabled>Next \\u2192</button>' +
+    '</div></div>';
+}}
+
+function rate(v) {{
+  cur = v;
+  document.querySelectorAll('.star').forEach(s => {{
+    s.classList.toggle('active', parseInt(s.dataset.v) <= v);
+  }});
+  document.getElementById('nxt').disabled = false;
+}}
+
+function nxt() {{
+  if (!cur) return;
+  ratings.push({{idx: idx, config_id: ORDER[idx], rating: cur}});
+  cur = 0; idx++; render();
+}}
+
+function skip() {{ cur = 0; idx++; render(); }}
+
+function finish() {{
+  document.getElementById('container').style.display = 'none';
+  document.getElementById('fill').style.width = '100%';
+  document.getElementById('prog').textContent = 'Done! ' + ratings.length + ' rated';
+  document.getElementById('done').style.display = 'block';
+  const byId = {{}};
+  ratings.forEach(r => {{ byId[r.config_id] = r.rating; }});
+  const sorted = Object.entries(byId).sort((a,b) => b[1] - a[1]);
+  let t = '<table style="width:100%;font-size:0.85rem;text-align:center;margin:1rem 0">';
+  t += '<tr><th>Rank</th><th>Config</th><th>Rating</th></tr>';
+  sorted.slice(0,10).forEach((e,i) => {{
+    const c = e[1]>=4 ? '#4ade80' : e[1]>=3 ? '#fbbf24' : '#f87171';
+    t += '<tr><td>'+(i+1)+'</td><td>'+e[0]+'</td><td style="font-weight:700;color:'+c+'">'+e[1]+'</td></tr>';
+  }});
+  t += '</table>';
+  document.getElementById('summary').innerHTML = '<p>Top 10:</p>' + t + '<p style="color:#888;margin-top:1rem">Download the JSON to feed into the optimizer.</p>';
+}}
+
+function download() {{
+  const blob = new Blob([JSON.stringify({{ratings:ratings, order:ORDER, timestamp:new Date().toISOString()}}, null, 2)], {{type:'application/json'}});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'blind_ratings.json';
+  a.click();
+}}
+
+render();
+</script></body></html>"""
+
+out = os.path.join(AB_DIR, "index.html")
+with open(out, "w") as f:
+    f.write(html)
+print(f"Blind test: file://{out}")
+print(f"50 samples, randomized, key in blind_key.json")

@@ -4,6 +4,10 @@
 #include "tlcs_codebook.h"
 #include "tlcs_qmf.h"
 #include "tlcs_lsf_vq.h"
+#include "tlcs_mdct.h"
+#include "tlcs_tcx.h"
+#include "tlcs_tune.h"
+#include "tlcs_mode.h"
 #include "../bitstream/tlcs_bitstream.h"
 #include "../entropy/tlcs_range_coder.h"
 #include "../entropy/tlcs_ec_models.h"
@@ -13,6 +17,41 @@
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
+
+/* ── Decoder-side pitch detection (autocorrelation) ───────────── */
+static int32_t detect_pitch_autocorr(const float *signal, int32_t n,
+                                      int32_t min_lag, int32_t max_lag,
+                                      float *voicing_out)
+{
+    float best_corr = 0.0f;
+    int32_t best_lag = 0;
+
+    /* Signal energy */
+    float energy = 0.0f;
+    for (int32_t i = 0; i < n; i++)
+        energy += signal[i] * signal[i];
+    if (energy < 1.0f) {
+        *voicing_out = 0.0f;
+        return 0;
+    }
+
+    for (int32_t lag = min_lag; lag <= max_lag && lag < n; lag++) {
+        float corr = 0.0f, lag_e = 0.0f;
+        for (int32_t i = lag; i < n; i++) {
+            corr  += signal[i] * signal[i - lag];
+            lag_e += signal[i - lag] * signal[i - lag];
+        }
+        if (lag_e < 1.0f) continue;
+        float norm_corr = corr / sqrtf(energy * lag_e);
+        if (norm_corr > best_corr) {
+            best_corr = norm_corr;
+            best_lag = lag;
+        }
+    }
+
+    *voicing_out = best_corr;
+    return best_lag;
+}
 
 /* ── PRNG for noise fill ──────────────────────────────────────── */
 
@@ -1184,10 +1223,14 @@ static tlcs_status decode_direct_ec(tlcs_decoder *dec,
  *  Fixed-width bitstream, aggressive pitch sharpening, LR post-filters.
  * ══════════════════════════════════════════════════════════════════ */
 
-static tlcs_status decode_vlr(tlcs_decoder *dec,
-                                const uint8_t *bitstream_in,
-                                int32_t bytes_in,
-                                int16_t *pcm_out)
+/* decode_vlr_core: shared CELP decode logic for VLR and LR Mode S.
+ * If ext_bsr is non-NULL, uses it (reader already past mode bit).
+ * If ext_bsr is NULL, creates own reader from bitstream_in. */
+static tlcs_status decode_vlr_core(tlcs_decoder *dec,
+                                     const uint8_t *bitstream_in,
+                                     int32_t bytes_in,
+                                     int16_t *pcm_out,
+                                     tlcs_bs_reader *ext_bsr)
 {
     const int32_t n       = dec->cfg.frame_size;
     const int32_t order   = dec->cfg.lpc_order;
@@ -1214,12 +1257,20 @@ static tlcs_status decode_vlr(tlcs_decoder *dec,
                            ? LSF_VQ_NUM_SPLITS * lsf_bits
                            : order * lsf_bits;
     int32_t total_bits = lsf_total_bits + pitch_bits + n_subfr * subfr_other_bits;
+    if (ext_bsr) total_bits += 1; /* account for mode bit already read */
     int32_t expected_bytes = (total_bits + 7) / 8;
     if (bytes_in < expected_bytes) return TLCS_ERR_BAD_BITSTREAM;
 
     /* ── Step 1: Unpack parameters ──────────────────────── */
-    tlcs_bs_reader bsr;
-    tlcs_bs_reader_init(&bsr, bitstream_in, bytes_in);
+    tlcs_bs_reader local_bsr;
+    tlcs_bs_reader *bsr_ptr;
+    if (ext_bsr) {
+        bsr_ptr = ext_bsr;
+    } else {
+        tlcs_bs_reader_init(&local_bsr, bitstream_in, bytes_in);
+        bsr_ptr = &local_bsr;
+    }
+    #define bsr (*bsr_ptr)
 
     /* Predictive LSF dequantization */
     float lsf_pred[TLCS_LPC_ORDER_MAX];
@@ -1419,9 +1470,20 @@ static tlcs_status decode_vlr(tlcs_decoder *dec,
         dec->prev_prev_lsf[i] = dec->prev_lsf[i];
         dec->prev_lsf[i] = (int16_t)(lsf[i] * 5000.0f);
     }
+    dec->prev_codec_mode = TLCS_CODEC_MODE_S;
     dec->frame_count++;
 
     return TLCS_OK;
+    #undef bsr
+}
+
+/* Thin wrapper: VLR decode without external reader */
+static tlcs_status decode_vlr(tlcs_decoder *dec,
+                                const uint8_t *bitstream_in,
+                                int32_t bytes_in,
+                                int16_t *pcm_out)
+{
+    return decode_vlr_core(dec, bitstream_in, bytes_in, pcm_out, NULL);
 }
 
 /* ══════════════════════════════════════════════════════════════════
@@ -1766,6 +1828,203 @@ static tlcs_status decode_direct(tlcs_decoder *dec,
 }
 
 /* ══════════════════════════════════════════════════════════════════
+ *  TCX Decoder (Mode T)
+ *  Reads spectral parameters, inverse quantizes, IMDCT, LPC synthesis.
+ * ══════════════════════════════════════════════════════════════════ */
+
+static tlcs_status decode_tcx(tlcs_decoder *dec,
+                                tlcs_bs_reader *bsr,
+                                int32_t bytes_in,
+                                int16_t *pcm_out)
+{
+    const int32_t n     = dec->cfg.frame_size;
+    const int32_t order = dec->cfg.lpc_order;
+    int32_t lsf_bits    = dec->cfg.lsf_bits;
+
+    /* ── Step 1: LSF dequantization (always VQ for TCX) ── */
+    float lsf_pred[TLCS_LPC_ORDER_MAX];
+    for (int32_t i = 0; i < order; i++)
+        lsf_pred[i] = (float)dec->prev_lsf[i] / 5000.0f;
+
+    float lsf[TLCS_LPC_ORDER_MAX];
+    {
+        int32_t vq_size = 1 << lsf_bits;
+        int32_t vq_idx[LSF_VQ_NUM_SPLITS];
+        for (int32_t s = 0; s < LSF_VQ_NUM_SPLITS; s++) {
+            uint32_t val;
+            tlcs_bs_read(bsr, &val, lsf_bits);
+            vq_idx[s] = (int32_t)val;
+        }
+        float delta_q[TLCS_LPC_ORDER_MAX];
+        tlcs_lsf_vq_decode_n(vq_idx, order, delta_q, vq_size);
+        for (int32_t i = 0; i < order; i++)
+            lsf[i] = lsf_pred[i] + delta_q[i];
+    }
+    tlcs_lsf_stabilize(lsf, order);
+
+    float a_q[TLCS_LPC_ORDER_MAX + 1];
+    tlcs_lsf_to_lpc(lsf, order, a_q);
+
+    /* ── Step 2: Compute LPC envelope (needed for per-band CDFs) ── */
+    float lpc_env[TLCS_MAX_FRAME_SIZE];
+    tlcs_tcx_lpc_envelope(a_q, order, lpc_env, n);
+
+    /* ── Step 3: Read TCX spectral parameters ──────────── */
+    tlcs_tcx_params tcx_params;
+    memset(&tcx_params, 0, sizeof(tcx_params));
+    tcx_params.num_bins = n;
+
+    /* Global gain: 7 bits */
+    uint32_t gain_val;
+    tlcs_bs_read(bsr, &gain_val, TCX_GAIN_BITS);
+    tcx_params.global_gain_idx = (int32_t)gain_val;
+
+    /* Step index: 3 bits */
+    {
+        uint32_t step_val;
+        tlcs_bs_read(bsr, &step_val, TCX_STEP_BITS);
+        tcx_params.step_idx = (int32_t)step_val;
+    }
+
+    /* Compute header byte offset (must match encoder) */
+    int32_t lsf_total_bits = LSF_VQ_NUM_SPLITS * lsf_bits;
+    int32_t hdr_bits = 1 + lsf_total_bits + TCX_GAIN_BITS + TCX_STEP_BITS;
+    int32_t hdr_bytes = (hdr_bits + 7) / 8;
+    int32_t rc_bytes_avail = bytes_in - hdr_bytes;
+    if (rc_bytes_avail < 4) rc_bytes_avail = 4;
+
+    /* Compute coded bins (must match encoder) */
+    int32_t frame_bytes_budget = (dec->cfg.bitrate / 50 + 7) / 8;
+    if (frame_bytes_budget < 18) frame_bytes_budget = 18;
+    int32_t rc_bytes_budget = frame_bytes_budget - hdr_bytes;
+    if (rc_bytes_budget < 4) rc_bytes_budget = 4;
+    int32_t is_lr = (dec->cfg.bitrate < TLCS_LR_BITRATE_THRESHOLD);
+    int32_t is_vlr = (dec->cfg.bitrate < TLCS_VLR_BITRATE_THRESHOLD);
+    int32_t rc_mult = is_lr ? (is_vlr ? 7 : 8) : 2;
+    int32_t num_rc_bins = rc_bytes_budget * rc_mult;
+    if (num_rc_bins > n) num_rc_bins = n;
+
+    /* Range-decode spectral bins */
+    uint16_t cdf[TCX_SPEC_NSYM + 1];
+    tlcs_tcx_compute_cdf(tcx_params.step_idx, cdf);
+
+    tlcs_rc_decoder rc_dec;
+    tlcs_rc_dec_init(&rc_dec, (const uint8_t *)bsr->buf + hdr_bytes, rc_bytes_avail);
+
+    memset(tcx_params.quant, 0, (size_t)n * sizeof(int8_t));
+    for (int32_t i = 0; i < num_rc_bins; i++) {
+        int32_t sym = tlcs_rc_dec_symbol(&rc_dec, cdf, TCX_SPEC_NSYM);
+        int32_t q = sym - TCX_QUANT_MAX;
+        if (q < -TCX_QUANT_MAX) q = -TCX_QUANT_MAX;
+        if (q > TCX_QUANT_MAX) q = TCX_QUANT_MAX;
+        tcx_params.quant[i] = (int8_t)q;
+    }
+    tcx_params.num_coded_bins = num_rc_bins;
+
+    float spec[TLCS_MAX_FRAME_SIZE];
+    tlcs_tcx_decode(&tcx_params, lpc_env, spec, &dec->noise_seed);
+
+    /* ── Step 4: Inverse MDCT ──────────────────────── */
+    float synth[TLCS_MAX_FRAME_SIZE];
+    tlcs_mdct_inverse(spec, synth, dec->mdct_overlap, n);
+
+    /* ── Step 4.5: Formant post-filter ─────────────── */
+    {
+        float prev_lsf_f[TLCS_LPC_ORDER_MAX];
+        float alpha_tbl[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+        for (int32_t i = 0; i < order; i++)
+            prev_lsf_f[i] = lsf[i];
+        float pf_num = (dec->cfg.bitrate < TLCS_LR_BITRATE_THRESHOLD)
+                      ? TUNE_PF_NUM_LR : 0.55f;
+        float pf_den = (dec->cfg.bitrate < TLCS_LR_BITRATE_THRESHOLD)
+                      ? TUNE_PF_DEN_LR : 0.75f;
+        float pf_tilt = (dec->cfg.bitrate < TLCS_LR_BITRATE_THRESHOLD)
+                       ? TUNE_PF_TILT_LR : 0.55f;
+        formant_postfilter(synth, n, 80, n / 80, order,
+                           lsf, prev_lsf_f, alpha_tbl,
+                           pf_num, pf_den, pf_tilt,
+                           dec->pf_fir_mem, dec->pf_synth_mem,
+                           &dec->pf_tilt_mem);
+    }
+
+    /* ── Step 5: De-emphasis ──────────────────────── */
+    float deemph_mem_f = (float)dec->deemph_mem;
+    tlcs_deemph(synth, n, &deemph_mem_f);
+    dec->deemph_mem = (int16_t)deemph_mem_f;
+
+    /* ── Step 6: Output ───────────────────────────── */
+    for (int32_t i = 0; i < n; i++) {
+        float v = synth[i];
+        if (v > 32767.0f) v = 32767.0f;
+        if (v < -32768.0f) v = -32768.0f;
+        pcm_out[i] = (int16_t)v;
+    }
+
+    /* Update state */
+    for (int32_t i = 0; i < order; i++) {
+        dec->prev_prev_lsf[i] = dec->prev_lsf[i];
+        dec->prev_lsf[i] = (int16_t)(lsf[i] * 5000.0f);
+    }
+    for (int32_t i = 0; i < order; i++)
+        dec->tcx_synth_mem[i] = synth[n - order + i];
+    dec->prev_codec_mode = TLCS_CODEC_MODE_T;
+    dec->frame_count++;
+
+    return TLCS_OK;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+ *  HR Hybrid Decoder: reads mode bit, dispatches to CELP or TCX.
+ * ══════════════════════════════════════════════════════════════════ */
+
+static tlcs_status decode_hr_hybrid(tlcs_decoder *dec,
+                                      const uint8_t *bitstream_in,
+                                      int32_t bytes_in,
+                                      int16_t *pcm_out)
+{
+    if (bytes_in < 1) return TLCS_ERR_BAD_BITSTREAM;
+
+    tlcs_bs_reader bsr;
+    tlcs_bs_reader_init(&bsr, bitstream_in, bytes_in);
+
+    uint32_t mode_val;
+    tlcs_bs_read(&bsr, &mode_val, 1);
+
+    if (mode_val == TLCS_CODEC_MODE_T) {
+        return decode_tcx(dec, &bsr, bytes_in, pcm_out);
+    }
+
+    /* Mode S (CELP): currently dead code — mode decision always returns T.
+     * Fall back to decode_direct (creates its own reader from byte 0). */
+    return decode_direct(dec, bitstream_in, bytes_in, pcm_out);
+}
+
+/* ══════════════════════════════════════════════════════════════════
+ *  LR Hybrid Decoder: reads mode bit, dispatches to CELP or TCX.
+ * ══════════════════════════════════════════════════════════════════ */
+
+static tlcs_status decode_lr_hybrid(tlcs_decoder *dec,
+                                      const uint8_t *bitstream_in,
+                                      int32_t bytes_in,
+                                      int16_t *pcm_out)
+{
+    if (bytes_in < 1) return TLCS_ERR_BAD_BITSTREAM;
+
+    tlcs_bs_reader bsr;
+    tlcs_bs_reader_init(&bsr, bitstream_in, bytes_in);
+
+    uint32_t mode_val;
+    tlcs_bs_read(&bsr, &mode_val, 1);
+
+    if (mode_val == TLCS_CODEC_MODE_T) {
+        return decode_tcx(dec, &bsr, bytes_in, pcm_out);
+    }
+
+    /* Mode S (CELP): reuse VLR decode core with reader past mode bit */
+    return decode_vlr_core(dec, bitstream_in, bytes_in, pcm_out, &bsr);
+}
+
+/* ══════════════════════════════════════════════════════════════════
  *  Public API
  * ══════════════════════════════════════════════════════════════════ */
 
@@ -1799,9 +2058,9 @@ tlcs_status tlcs_decode(tlcs_decoder *dec,
     }
 
     if (dec->cfg.bitrate < TLCS_LR_BITRATE_THRESHOLD)
-        return decode_vlr(dec, bitstream_in, bytes_in, pcm_out);
+        return decode_lr_hybrid(dec, bitstream_in, bytes_in, pcm_out);
 
-    return decode_direct(dec, bitstream_in, bytes_in, pcm_out);
+    return decode_hr_hybrid(dec, bitstream_in, bytes_in, pcm_out);
 }
 
 tlcs_status tlcs_decode_plc(tlcs_decoder *dec, int16_t *pcm_out)

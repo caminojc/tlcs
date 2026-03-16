@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TLCS vs EVS vs SMPL — Codec Comparison</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;background:#0a0a0a;color:#e0e0e0;padding:2rem;line-height:1.6}
+h1{font-size:2rem;margin-bottom:0.3rem;color:#fff}
+h2{font-size:1.3rem;margin:2.5rem 0 1rem;color:#ccc;border-bottom:1px solid #333;padding-bottom:0.5rem}
+.sub{color:#888;margin-bottom:2rem}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:0.8rem;margin:1rem 0}
+.card{background:#1a1a1a;border-radius:10px;padding:1rem;border:1px solid #333}
+.card .label{font-size:0.75rem;color:#888;text-transform:uppercase;letter-spacing:0.04em}
+.card .val{font-size:1.6rem;font-weight:700;margin:0.2rem 0}
+.card .det{font-size:0.8rem;color:#777}
+.tlcs .val{color:#60a5fa} .smpl .val{color:#f97316} .evs .val{color:#a78bfa} .orig .val{color:#888}
+.win{border-color:#2d8a4e !important} .lose{border-color:#8a2d2d !important}
+.matchup{background:#111;border-radius:10px;padding:1.2rem;margin:1rem 0;display:grid;grid-template-columns:1fr auto 1fr;gap:1rem;align-items:center}
+.matchup .vs{font-size:1.5rem;color:#555;font-weight:700}
+.matchup .side{text-align:center}
+.matchup .name{font-size:0.85rem;color:#888;margin-bottom:0.3rem}
+.matchup .score{font-size:2rem;font-weight:700}
+.matchup .delta{font-size:0.9rem;margin-top:0.3rem}
+.pos{color:#4ade80} .neg{color:#f87171} .neutral{color:#888}
+table{width:100%;border-collapse:collapse;margin:1rem 0;font-size:0.85rem}
+th{text-align:left;padding:0.5rem;border-bottom:2px solid #333;font-size:0.75rem;color:#888;text-transform:uppercase}
+td{padding:0.4rem 0.5rem;border-bottom:1px solid #1a1a1a}
+tr:hover td{background:#111}
+.sq{font-weight:600;font-variant-numeric:tabular-nums}
+.hi{color:#4ade80} .mid{color:#fbbf24} .lo{color:#f87171}
+.listen{background:#111;border-radius:8px;padding:1rem;margin:0.8rem 0}
+.fname{font-weight:600;margin-bottom:0.6rem}
+.arow{display:grid;grid-template-columns:110px 1fr 60px;align-items:center;gap:0.6rem;margin:0.3rem 0}
+.albl{font-size:0.8rem;color:#aaa}
+audio{width:100%;height:28px}
+footer{margin-top:3rem;padding-top:1rem;border-top:1px solid #222;color:#555;font-size:0.75rem}
+</style></head><body>
+<h1>TLCS vs EVS vs SMPL</h1>
+<p class="sub">20-file LibriSpeech corpus &bull; SCOREQ (non-intrusive MOS) &bull; All codecs at native rates</p>
+
+<h2>Head-to-Head</h2>
+<div class="matchup">
+  <div class="side"><div class="name">TLCS 5k (8.7 kbps)</div>
+    <div class="score" style="color:#60a5fa">3.34</div>
+    <div class="det">&plusmn; 0.28</div></div>
+  <div class="vs">vs</div>
+  <div class="side"><div class="name">SMPL 5k (6.0 kbps)</div>
+    <div class="score" style="color:#f97316">3.24</div>
+    <div class="det">&plusmn; 0.42</div></div>
+</div>
+<p style="text-align:center;margin:-0.5rem 0 1rem"><span class="pos" style="font-weight:700">Low Rate (~5-8 kbps): +0.10 SCOREQ — WIN</span></p>
+<div class="matchup">
+  <div class="side"><div class="name">TLCS 9.6k (11.4 kbps)</div>
+    <div class="score" style="color:#60a5fa">3.53</div>
+    <div class="det">&plusmn; 0.28</div></div>
+  <div class="vs">vs</div>
+  <div class="side"><div class="name">SMPL 8k (8.5 kbps)</div>
+    <div class="score" style="color:#f97316">3.88</div>
+    <div class="det">&plusmn; 0.37</div></div>
+</div>
+<p style="text-align:center;margin:-0.5rem 0 1rem"><span class="neg" style="font-weight:700">Mid Rate (~8-12 kbps): -0.35 SCOREQ — 0.35 gap</span></p>
+<div class="matchup">
+  <div class="side"><div class="name">TLCS 25k (24.3 kbps)</div>
+    <div class="score" style="color:#60a5fa">4.04</div>
+    <div class="det">&plusmn; 0.22</div></div>
+  <div class="vs">vs</div>
+  <div class="side"><div class="name">EVS 9.6k (9.6 kbps)</div>
+    <div class="score" style="color:#a78bfa">4.17</div>
+    <div class="det">&plusmn; 0.24</div></div>
+</div>
+<p style="text-align:center;margin:-0.5rem 0 1rem"><span class="neg" style="font-weight:700">High Rate (25k vs EVS 9.6k): -0.13 SCOREQ — 0.13 gap</span></p>
+<h2>All Codecs Summary</h2><div class="grid"><div class="card tlcs"><div class="label">TLCS 5k</div>
+  <div class="val">3.34</div><div class="det">&plusmn; 0.28 &bull; 8.7 kbps</div></div>
+<div class="card smpl"><div class="label">SMPL 5k</div>
+  <div class="val">3.24</div><div class="det">&plusmn; 0.42 &bull; 6.0 kbps</div></div>
+<div class="card tlcs"><div class="label">TLCS 9.6k</div>
+  <div class="val">3.53</div><div class="det">&plusmn; 0.28 &bull; 11.4 kbps</div></div>
+<div class="card smpl"><div class="label">SMPL 8k</div>
+  <div class="val">3.88</div><div class="det">&plusmn; 0.37 &bull; 8.5 kbps</div></div>
+<div class="card tlcs"><div class="label">TLCS 25k</div>
+  <div class="val">4.04</div><div class="det">&plusmn; 0.22 &bull; 24.3 kbps</div></div>
+<div class="card evs"><div class="label">EVS 9.6k</div>
+  <div class="val">4.17</div><div class="det">&plusmn; 0.24 &bull; 9.6 kbps</div></div>
+</div><h2>Per-File Scores</h2><table><thead><tr><th>File</th><th>Orig</th><th>TLCS 5k</th><th>SMPL 5k</th><th>TLCS 9.6k</th><th>SMPL 8k</th><th>TLCS 25k</th><th>EVS 9.6k</th></tr></thead><tbody>
+<tr><td>1089-134686-0004.wav</td><td class="sq">4.77</td><td class="sq mid">3.42</td><td class="sq mid">3.74</td><td class="sq mid">3.72</td><td class="sq hi">4.35</td><td class="sq hi">4.30</td><td class="sq hi">4.64</td></tr>
+<tr><td>1188-133604-0043.wav</td><td class="sq">4.36</td><td class="sq mid">3.42</td><td class="sq mid">3.44</td><td class="sq mid">3.59</td><td class="sq mid">3.98</td><td class="sq mid">3.97</td><td class="sq hi">4.18</td></tr>
+<tr><td>1284-1180-0032.wav</td><td class="sq">4.14</td><td class="sq mid">3.20</td><td class="sq lo">2.79</td><td class="sq mid">3.40</td><td class="sq mid">3.52</td><td class="sq mid">3.87</td><td class="sq mid">4.00</td></tr>
+<tr><td>1320-122617-0008.wav</td><td class="sq">4.82</td><td class="sq mid">3.77</td><td class="sq mid">3.68</td><td class="sq mid">3.97</td><td class="sq hi">4.39</td><td class="sq hi">4.46</td><td class="sq hi">4.59</td></tr>
+<tr><td>1580-141083-0007.wav</td><td class="sq">4.43</td><td class="sq mid">3.59</td><td class="sq mid">3.83</td><td class="sq mid">3.73</td><td class="sq hi">4.11</td><td class="sq hi">4.13</td><td class="sq hi">4.30</td></tr>
+<tr><td>1995-1826-0002.wav</td><td class="sq">4.03</td><td class="sq lo">2.88</td><td class="sq lo">2.87</td><td class="sq mid">3.01</td><td class="sq mid">3.51</td><td class="sq mid">3.61</td><td class="sq mid">3.84</td></tr>
+<tr><td>2094-142345-0023.wav</td><td class="sq">4.07</td><td class="sq mid">3.22</td><td class="sq mid">3.30</td><td class="sq mid">3.41</td><td class="sq mid">3.87</td><td class="sq mid">3.88</td><td class="sq hi">4.00</td></tr>
+<tr><td>237-134500-0022.wav</td><td class="sq">4.18</td><td class="sq lo">2.90</td><td class="sq lo">2.93</td><td class="sq mid">3.04</td><td class="sq mid">3.49</td><td class="sq mid">3.74</td><td class="sq mid">3.94</td></tr>
+<tr><td>2830-3980-0013.wav</td><td class="sq">3.93</td><td class="sq lo">2.83</td><td class="sq lo">2.42</td><td class="sq mid">3.07</td><td class="sq lo">2.85</td><td class="sq mid">3.80</td><td class="sq mid">3.70</td></tr>
+<tr><td>2961-961-0009.wav</td><td class="sq">4.39</td><td class="sq mid">3.44</td><td class="sq mid">3.20</td><td class="sq mid">3.69</td><td class="sq mid">3.94</td><td class="sq mid">3.98</td><td class="sq hi">4.02</td></tr>
+<tr><td>3575-170457-0021.wav</td><td class="sq">4.50</td><td class="sq mid">3.66</td><td class="sq mid">3.82</td><td class="sq mid">3.86</td><td class="sq hi">4.38</td><td class="sq hi">4.18</td><td class="sq hi">4.20</td></tr>
+<tr><td>3729-6852-0037.wav</td><td class="sq">4.47</td><td class="sq mid">3.61</td><td class="sq mid">3.22</td><td class="sq mid">3.79</td><td class="sq hi">4.12</td><td class="sq hi">4.10</td><td class="sq hi">4.43</td></tr>
+<tr><td>4077-13751-0017.wav</td><td class="sq">4.06</td><td class="sq lo">2.86</td><td class="sq lo">2.51</td><td class="sq mid">3.06</td><td class="sq mid">3.42</td><td class="sq hi">4.05</td><td class="sq mid">3.96</td></tr>
+<tr><td>4446-2275-0005.wav</td><td class="sq">4.59</td><td class="sq mid">3.25</td><td class="sq mid">3.56</td><td class="sq mid">3.41</td><td class="sq hi">4.13</td><td class="sq hi">4.17</td><td class="sq hi">4.50</td></tr>
+<tr><td>5105-28240-0000.wav</td><td class="sq">4.08</td><td class="sq mid">3.27</td><td class="sq mid">3.17</td><td class="sq mid">3.43</td><td class="sq mid">3.70</td><td class="sq mid">3.75</td><td class="sq hi">4.05</td></tr>
+<tr><td>5639-40744-0005.wav</td><td class="sq">4.38</td><td class="sq mid">3.44</td><td class="sq mid">3.66</td><td class="sq mid">3.73</td><td class="sq hi">4.13</td><td class="sq hi">4.06</td><td class="sq hi">4.20</td></tr>
+<tr><td>5683-32865-0007.wav</td><td class="sq">4.39</td><td class="sq mid">3.45</td><td class="sq mid">3.64</td><td class="sq mid">3.57</td><td class="sq hi">4.09</td><td class="sq hi">4.01</td><td class="sq hi">4.17</td></tr>
+<tr><td>7021-85628-0016.wav</td><td class="sq">4.58</td><td class="sq mid">3.50</td><td class="sq lo">2.86</td><td class="sq mid">3.71</td><td class="sq mid">4.00</td><td class="sq hi">4.34</td><td class="sq hi">4.32</td></tr>
+<tr><td>7127-75946-0007.wav</td><td class="sq">4.63</td><td class="sq mid">3.44</td><td class="sq mid">3.17</td><td class="sq mid">3.63</td><td class="sq mid">3.76</td><td class="sq hi">4.33</td><td class="sq hi">4.24</td></tr>
+<tr><td>908-157963-0014.wav</td><td class="sq">4.46</td><td class="sq mid">3.61</td><td class="sq mid">3.06</td><td class="sq mid">3.70</td><td class="sq mid">3.83</td><td class="sq hi">4.13</td><td class="sq hi">4.09</td></tr>
+</tbody></table><h2>Listen &amp; Compare</h2>
+<p style="color:#888;margin-bottom:1rem">Side-by-side: original, TLCS, and reference codec. All 16kHz mono.</p><div class="listen"><div class="fname">4446-2275-0005.wav (original: 4.59)</div>
+<div class="arow"><div class="albl">Original</div><audio controls preload="none"><source src="audio/4446-2275-0005.wav" type="audio/wav"></audio><span class="sq">4.59</span></div>
+<div class="arow"><div class="albl">TLCS 5k</div><audio controls preload="none"><source src="audio/4446-2275-0005_tlcs-5.0k.wav" type="audio/wav"></audio><span class="sq mid">3.25</span></div>
+<div class="arow"><div class="albl">SMPL 5k</div><audio controls preload="none"><source src="audio/4446-2275-0005_smpl-5k.wav" type="audio/wav"></audio><span class="sq mid">3.56</span></div>
+<div class="arow"><div class="albl">TLCS 9.6k</div><audio controls preload="none"><source src="audio/4446-2275-0005_tlcs-9.6k.wav" type="audio/wav"></audio><span class="sq mid">3.41</span></div>
+<div class="arow"><div class="albl">SMPL 8k</div><audio controls preload="none"><source src="audio/4446-2275-0005_smpl-8k.wav" type="audio/wav"></audio><span class="sq hi">4.13</span></div>
+<div class="arow"><div class="albl">TLCS 25k</div><audio controls preload="none"><source src="audio/4446-2275-0005_tlcs-25.0k.wav" type="audio/wav"></audio><span class="sq hi">4.17</span></div>
+<div class="arow"><div class="albl">EVS 9.6k</div><audio controls preload="none"><source src="audio/4446-2275-0005_evs-9k.wav" type="audio/wav"></audio><span class="sq hi">4.50</span></div>
+</div>
+<div class="listen"><div class="fname">2830-3980-0013.wav (original: 3.93)</div>
+<div class="arow"><div class="albl">Original</div><audio controls preload="none"><source src="audio/2830-3980-0013.wav" type="audio/wav"></audio><span class="sq">3.93</span></div>
+<div class="arow"><div class="albl">TLCS 5k</div><audio controls preload="none"><source src="audio/2830-3980-0013_tlcs-5.0k.wav" type="audio/wav"></audio><span class="sq lo">2.83</span></div>
+<div class="arow"><div class="albl">SMPL 5k</div><audio controls preload="none"><source src="audio/2830-3980-0013_smpl-5k.wav" type="audio/wav"></audio><span class="sq lo">2.42</span></div>
+<div class="arow"><div class="albl">TLCS 9.6k</div><audio controls preload="none"><source src="audio/2830-3980-0013_tlcs-9.6k.wav" type="audio/wav"></audio><span class="sq mid">3.07</span></div>
+<div class="arow"><div class="albl">SMPL 8k</div><audio controls preload="none"><source src="audio/2830-3980-0013_smpl-8k.wav" type="audio/wav"></audio><span class="sq lo">2.85</span></div>
+<div class="arow"><div class="albl">TLCS 25k</div><audio controls preload="none"><source src="audio/2830-3980-0013_tlcs-25.0k.wav" type="audio/wav"></audio><span class="sq mid">3.80</span></div>
+<div class="arow"><div class="albl">EVS 9.6k</div><audio controls preload="none"><source src="audio/2830-3980-0013_evs-9k.wav" type="audio/wav"></audio><span class="sq mid">3.70</span></div>
+</div>
+<div class="listen"><div class="fname">7021-85628-0016.wav (original: 4.58)</div>
+<div class="arow"><div class="albl">Original</div><audio controls preload="none"><source src="audio/7021-85628-0016.wav" type="audio/wav"></audio><span class="sq">4.58</span></div>
+<div class="arow"><div class="albl">TLCS 5k</div><audio controls preload="none"><source src="audio/7021-85628-0016_tlcs-5.0k.wav" type="audio/wav"></audio><span class="sq mid">3.50</span></div>
+<div class="arow"><div class="albl">SMPL 5k</div><audio controls preload="none"><source src="audio/7021-85628-0016_smpl-5k.wav" type="audio/wav"></audio><span class="sq lo">2.86</span></div>
+<div class="arow"><div class="albl">TLCS 9.6k</div><audio controls preload="none"><source src="audio/7021-85628-0016_tlcs-9.6k.wav" type="audio/wav"></audio><span class="sq mid">3.71</span></div>
+<div class="arow"><div class="albl">SMPL 8k</div><audio controls preload="none"><source src="audio/7021-85628-0016_smpl-8k.wav" type="audio/wav"></audio><span class="sq mid">4.00</span></div>
+<div class="arow"><div class="albl">TLCS 25k</div><audio controls preload="none"><source src="audio/7021-85628-0016_tlcs-25.0k.wav" type="audio/wav"></audio><span class="sq hi">4.34</span></div>
+<div class="arow"><div class="albl">EVS 9.6k</div><audio controls preload="none"><source src="audio/7021-85628-0016_evs-9k.wav" type="audio/wav"></audio><span class="sq hi">4.32</span></div>
+</div>
+<div class="listen"><div class="fname">908-157963-0014.wav (original: 4.46)</div>
+<div class="arow"><div class="albl">Original</div><audio controls preload="none"><source src="audio/908-157963-0014.wav" type="audio/wav"></audio><span class="sq">4.46</span></div>
+<div class="arow"><div class="albl">TLCS 5k</div><audio controls preload="none"><source src="audio/908-157963-0014_tlcs-5.0k.wav" type="audio/wav"></audio><span class="sq mid">3.61</span></div>
+<div class="arow"><div class="albl">SMPL 5k</div><audio controls preload="none"><source src="audio/908-157963-0014_smpl-5k.wav" type="audio/wav"></audio><span class="sq mid">3.06</span></div>
+<div class="arow"><div class="albl">TLCS 9.6k</div><audio controls preload="none"><source src="audio/908-157963-0014_tlcs-9.6k.wav" type="audio/wav"></audio><span class="sq mid">3.70</span></div>
+<div class="arow"><div class="albl">SMPL 8k</div><audio controls preload="none"><source src="audio/908-157963-0014_smpl-8k.wav" type="audio/wav"></audio><span class="sq mid">3.83</span></div>
+<div class="arow"><div class="albl">TLCS 25k</div><audio controls preload="none"><source src="audio/908-157963-0014_tlcs-25.0k.wav" type="audio/wav"></audio><span class="sq hi">4.13</span></div>
+<div class="arow"><div class="albl">EVS 9.6k</div><audio controls preload="none"><source src="audio/908-157963-0014_evs-9k.wav" type="audio/wav"></audio><span class="sq hi">4.09</span></div>
+</div>
+
+<h2>Changes from Baseline</h2>
+<ul style="margin:1rem 0;padding-left:1.5rem;color:#ccc;font-size:0.9rem">
+<li><b>ALFE</b> &mdash; 1.4x low-freq boost before quantization (zero bit cost)</li>
+<li><b>Perceptual distortion weighting</b> &mdash; formant-priority step selection</li>
+<li><b>SBR depth</b> &mdash; 2/3 of coded spectrum (was 1/2)</li>
+<li><b>Adaptive rc_mult</b> &mdash; VLR:7, LR:8 (was 6 for both)</li>
+</ul>
+<p style="color:#888;font-size:0.85rem;margin:1rem 0">GPU parameter sweep running on DGX (NVIDIA GB10) &mdash; optimizing noise fill, SBR, postfilter coefficients via NISQA scoring.</p>
+<footer>TLCS Codec &bull; lr-v2-experiment &bull; Sat Mar 14 23:01:01 HST 2026</footer>
+</body></html>

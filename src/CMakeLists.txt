@@ -22,6 +22,9 @@ add_library(tlcs_core STATIC
     codec/tlcs_qmf.c
     codec/tlcs_lsf_vq.c
     codec/tlcs_lsf_vq_tables.c
+    codec/tlcs_mdct.c
+    codec/tlcs_tcx.c
+    codec/tlcs_mode.c
     codec/tlcs_encoder.c
     codec/tlcs_decoder.c
     codec/tlcs_diag_encode.c
