@@ -257,12 +257,31 @@ int tlcs_encode(TlcsEncoder *enc, const int16_t *pcm,
             }
         }
 
-        /* Impulse response of 1/A(z) — used directly for codebook search.
-         * W(z) is applied to the TARGET only, not to h.
-         * This keeps gains in the synthesis domain so the decoder
-         * can apply them directly without domain conversion. */
+        /* Impulse response of W(z)/A(z) — MLOW applies W(z) to BOTH h and target.
+         * The gain from weighted search is used directly by the decoder.
+         * This works because the energy ratio is approximately preserved. */
+        float *h_synth = (float *)malloc((size_t)Nsub * sizeof(float));
+        tlcs_lpc_impulse_response(lpc_sub, P, Nsub, h_synth);
+
         float *h = (float *)malloc((size_t)Nsub * sizeof(float));
-        tlcs_lpc_impulse_response(lpc_sub, P, Nsub, h);
+        {
+            float wnum_mem[TLCS_LPC_ORDER];
+            float wden_mem[TLCS_LPC_ORDER];
+            memset(wnum_mem, 0, sizeof(wnum_mem));
+            memset(wden_mem, 0, sizeof(wden_mem));
+            for (int i = 0; i < Nsub; i++) {
+                float val = h_synth[i];
+                for (int k = 0; k < P; k++) val += lpc_wnum[k+1] * wnum_mem[k];
+                for (int k = P-1; k > 0; k--) wnum_mem[k] = wnum_mem[k-1];
+                wnum_mem[0] = h_synth[i];
+                float out_val = val;
+                for (int k = 0; k < P; k++) out_val -= lpc_wden[k+1] * wden_mem[k];
+                for (int k = P-1; k > 0; k--) wden_mem[k] = wden_mem[k-1];
+                wden_mem[0] = out_val;
+                h[i] = out_val;
+            }
+        }
+        free(h_synth);
 
         /* Zero-state response (ringing from previous subframe) */
         float *zsr = (float *)malloc((size_t)Nsub * sizeof(float));
@@ -406,7 +425,7 @@ int tlcs_encode(TlcsEncoder *enc, const int16_t *pcm,
         ol_pitch = int_lag;
 
         /* Free subframe allocations */
-        /* h_synth removed — h is now the unweighted IR directly */
+        /* h freed below with other subframe allocations */
         free(h);
         free(zsr);
         free(target_unweighted);
