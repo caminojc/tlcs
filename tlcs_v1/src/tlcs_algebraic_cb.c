@@ -111,14 +111,17 @@ void tlcs_acb_search(const float *target, const float *h,
     int positions[TLCS_ACB_NUM_PULSES];
     float signs[TLCS_ACB_NUM_PULSES];
 
-    /* MLOW-style search: no track constraint, global best position per pulse.
-     * Each pulse placed at the position maximizing Q = num^2 / den.
-     * num/den updated with exact Phi cross-terms after each placement. */
     for (int p = 0; p < TLCS_ACB_NUM_PULSES; p++) {
-        /* Find GLOBAL best position (no track constraint) */
-        int best_pos = 0;
+        int track = p % TLCS_ACB_NUM_TRACKS;
+
+        /* Find best position in this track: maximize Q = num^2 / den */
+        int best_pos = track;
         float best_Q = -1e30f;
-        for (int pos = 0; pos < N; pos++) {
+
+        for (int k = 0; k < TLCS_ACB_POS_PER_TRACK; k++) {
+            int pos = track + k * TLCS_ACB_NUM_TRACKS;
+            if (pos >= N) break;
+
             float Q = (num[pos] * num[pos]) / (den[pos] + 1e-16f);
             if (Q > best_Q) {
                 best_Q = Q;
@@ -130,31 +133,16 @@ void tlcs_acb_search(const float *target, const float *h,
         signs[p] = d_sign[best_pos];
         excitation[best_pos] += signs[p];
 
-        /* Update num/den for next pulse (MLOW-style exact update) */
+        /* Update num/den for next pulse using Phi cross-terms */
         if (p < TLCS_ACB_NUM_PULSES - 1) {
             float sgn_p = signs[p];
-            /* num: add absolute correlation of placed pulse to all positions */
-            for (int n = 0; n < N; n++) {
-                num[n] += d_abs[best_pos];
-            }
-            /* den: add cross-terms from Phi column at best_pos */
-            /* d_den = constant offset from all previous pulses interacting with new one */
-            float d_den = 0.0f;
-            for (int prev = 0; prev < p; prev++) {
-                int diff = abs(positions[prev] - best_pos);
-                if (diff < N) d_den += Phi[diff] * signs[prev];
-            }
-            d_den *= 2.0f * sgn_p;
-            d_den += Phi[0]; /* self-energy of new pulse */
-            /* Add constant part to all positions */
-            for (int n = 0; n < N; n++) {
-                den[n] += d_den;
-            }
-            /* Add position-dependent part: 2 * sgn_p * sign[n] * Phi[|n-best_pos|] */
             for (int n = 0; n < N; n++) {
                 int diff = abs(n - best_pos);
                 if (diff < N) {
-                    den[n] += 2.0f * sgn_p * d_sign[n] * Phi[diff];
+                    /* Cross-correlation between new pulse and position n */
+                    float cross = Phi[diff];
+                    num[n] += d_abs[best_pos];
+                    den[n] += 2.0f * sgn_p * d_sign[n] * cross + Phi[0];
                 }
             }
         }
