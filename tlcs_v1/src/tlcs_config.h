@@ -89,11 +89,11 @@
 #define TLCS_PERC_GAMMA2    0.60f
 
 /* ── Pitch sharpening ──────────────────────────────────── */
-#define TLCS_PITCH_SHARPENING_COEF   0.95f
+#define TLCS_PITCH_SHARPENING_COEF   0.0f
 
 /* ── Shaped noise fill (decoder) ──────────────────────── */
-#define TLCS_NOISE_V_GAIN    0.0f
-#define TLCS_NOISE_UV_GAIN   0.0f
+#define TLCS_NOISE_V_GAIN    0.25f
+#define TLCS_NOISE_UV_GAIN   0.50f
 
 /* ── Rate control ──────────────────────────────────────── */
 #define TLCS_RATE_CONT_GAIN     0.05f
