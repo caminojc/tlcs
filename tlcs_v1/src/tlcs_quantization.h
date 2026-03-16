@@ -4,10 +4,15 @@
 
 #include "tlcs_config.h"
 
-/* ---- LSP Split VQ -------------------------------------------------- */
+/* ---- LSP Split VQ (8-bit, 256 entries) ------------------------------ */
 void tlcs_lsp_vq_init(void);
 void tlcs_lsp_vq_quantize(const float *lsp, int *indices, float *lsp_q);
 void tlcs_lsp_vq_dequantize(const int *indices, float *lsp_out);
+
+/* ---- LSP Split VQ (6-bit, 64 entries, 5 kbps mode) ----------------- */
+void tlcs_lsp_vq_init_5k(void);
+void tlcs_lsp_vq_quantize_5k(const float *lsp, int *indices, float *lsp_q);
+void tlcs_lsp_vq_dequantize_5k(const int *indices, float *lsp_out);
 
 /* ---- Scalar pitch gain quantizer ----------------------------------- */
 /* Uniform scalar quantize pitch gain [0, 1.2] to TLCS_PITCH_GAIN_BITS index. */

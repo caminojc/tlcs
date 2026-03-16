@@ -21,18 +21,19 @@
 /* ================================================================== */
 
 static void encode_index(const int *positions, const float *signs,
-                         int num_pulses, int *out_lo, int *out_hi)
+                         int num_pulses, int num_tracks, int *out_lo, int *out_hi)
 {
-    /* Pack 8 pulses x 6 bits = 48 bits into two 24-bit ints.
+    /* Pack pulses x 6 bits into two 24-bit ints.
      * Pulses 0-3 go into lo (bits 0-23), pulses 4-7 go into hi (bits 0-23). */
     int lo = 0, hi = 0;
     for (int p = 0; p < num_pulses; p++) {
-        int track = p % TLCS_ACB_NUM_TRACKS;
+        int track = p % num_tracks;
         int pos = positions[p];
-        int pos_in_track = (pos - track) / TLCS_ACB_NUM_TRACKS;
+        int pos_per_track = TLCS_SUBFRAME_SIZE / num_tracks;
+        int pos_in_track = (pos - track) / num_tracks;
         if (pos_in_track < 0) pos_in_track = 0;
-        if (pos_in_track >= TLCS_ACB_POS_PER_TRACK)
-            pos_in_track = TLCS_ACB_POS_PER_TRACK - 1;
+        if (pos_in_track >= pos_per_track)
+            pos_in_track = pos_per_track - 1;
         int sign_bit = (signs[p] < 0.0f) ? 1 : 0;
         int pulse_idx = (pos_in_track << 1) | sign_bit;  /* 6 bits */
 
@@ -46,11 +47,12 @@ static void encode_index(const int *positions, const float *signs,
     *out_hi = hi;
 }
 
-static void decode_index(int lo, int hi, int num_pulses,
+static void decode_index(int lo, int hi, int num_pulses, int num_tracks,
                          int *positions, float *signs)
 {
+    int pos_per_track = TLCS_SUBFRAME_SIZE / num_tracks;
     for (int p = 0; p < num_pulses; p++) {
-        int track = p % TLCS_ACB_NUM_TRACKS;
+        int track = p % num_tracks;
         int packed;
         if (p < 4) {
             packed = (lo >> (p * 6)) & 0x3F;
@@ -59,9 +61,9 @@ static void decode_index(int lo, int hi, int num_pulses,
         }
         int sign_bit = packed & 1;
         int pos_in_track = packed >> 1;
-        if (pos_in_track >= TLCS_ACB_POS_PER_TRACK)
-            pos_in_track = TLCS_ACB_POS_PER_TRACK - 1;
-        positions[p] = track + pos_in_track * TLCS_ACB_NUM_TRACKS;
+        if (pos_in_track >= pos_per_track)
+            pos_in_track = pos_per_track - 1;
+        positions[p] = track + pos_in_track * num_tracks;
         signs[p] = sign_bit ? -1.0f : 1.0f;
     }
 }
@@ -70,12 +72,14 @@ static void decode_index(int lo, int hi, int num_pulses,
 /* FCB Search — Phi-based (SMPL-style num/den recurrence)               */
 /* ================================================================== */
 
-void tlcs_acb_search(const float *target, const float *h,
-                     int subframe_size,
-                     int *out_index_lo, int *out_index_hi,
-                     float *out_gain, float *out_exc)
+void tlcs_acb_search_n(const float *target, const float *h,
+                       int subframe_size, int num_pulses,
+                       int *out_index_lo, int *out_index_hi,
+                       float *out_gain, float *out_exc)
 {
     int N = subframe_size;
+    int num_tracks = num_pulses;  /* tracks == pulses (each pulse gets its own track) */
+    int pos_per_track = N / num_tracks;
 
     /* Precompute Phi: autocorrelation of impulse response h.
      * Phi[k] = sum_{n=0}^{N-1-k} h[n] * h[n+k]  */
@@ -108,18 +112,18 @@ void tlcs_acb_search(const float *target, const float *h,
 
     float *excitation = (float *)calloc((size_t)N, sizeof(float));
 
-    int positions[TLCS_ACB_NUM_PULSES];
-    float signs[TLCS_ACB_NUM_PULSES];
+    int positions[8];  /* max 8 pulses */
+    float signs[8];
 
-    for (int p = 0; p < TLCS_ACB_NUM_PULSES; p++) {
-        int track = p % TLCS_ACB_NUM_TRACKS;
+    for (int p = 0; p < num_pulses; p++) {
+        int track = p % num_tracks;
 
         /* Find best position in this track: maximize Q = num^2 / den */
         int best_pos = track;
         float best_Q = -1e30f;
 
-        for (int k = 0; k < TLCS_ACB_POS_PER_TRACK; k++) {
-            int pos = track + k * TLCS_ACB_NUM_TRACKS;
+        for (int k = 0; k < pos_per_track; k++) {
+            int pos = track + k * num_tracks;
             if (pos >= N) break;
 
             float Q = (num[pos] * num[pos]) / (den[pos] + 1e-16f);
@@ -134,7 +138,7 @@ void tlcs_acb_search(const float *target, const float *h,
         excitation[best_pos] += signs[p];
 
         /* Update num/den for next pulse using Phi cross-terms */
-        if (p < TLCS_ACB_NUM_PULSES - 1) {
+        if (p < num_pulses - 1) {
             float sgn_p = signs[p];
             for (int n = 0; n < N; n++) {
                 int diff = abs(n - best_pos);
@@ -168,7 +172,7 @@ void tlcs_acb_search(const float *target, const float *h,
     }
 
     /* Pack index and output */
-    encode_index(positions, signs, TLCS_ACB_NUM_PULSES,
+    encode_index(positions, signs, num_pulses, num_tracks,
                  out_index_lo, out_index_hi);
     memcpy(out_exc, excitation, (size_t)N * sizeof(float));
 
@@ -185,15 +189,16 @@ void tlcs_acb_search(const float *target, const float *h,
 /* Decode: reconstruct excitation from index                           */
 /* ================================================================== */
 
-void tlcs_acb_decode(int index_lo, int index_hi,
-                     int subframe_size, float *out_exc)
+void tlcs_acb_decode_n(int index_lo, int index_hi,
+                       int subframe_size, int num_pulses, float *out_exc)
 {
-    int positions[TLCS_ACB_NUM_PULSES];
-    float signs[TLCS_ACB_NUM_PULSES];
-    decode_index(index_lo, index_hi, TLCS_ACB_NUM_PULSES, positions, signs);
+    int num_tracks = num_pulses;
+    int positions[8];
+    float signs[8];
+    decode_index(index_lo, index_hi, num_pulses, num_tracks, positions, signs);
 
     memset(out_exc, 0, (size_t)subframe_size * sizeof(float));
-    for (int p = 0; p < TLCS_ACB_NUM_PULSES; p++) {
+    for (int p = 0; p < num_pulses; p++) {
         int pos = positions[p];
         if (pos >= 0 && pos < subframe_size) {
             out_exc[pos] += signs[p];

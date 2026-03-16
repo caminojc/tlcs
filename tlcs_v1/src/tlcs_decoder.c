@@ -93,6 +93,7 @@ TlcsDecoder* tlcs_decoder_create(int sample_rate)
 
     /* Init VQ codebooks (must match encoder) */
     tlcs_lsp_vq_init();
+    tlcs_lsp_vq_init_5k();
     tlcs_gain_vq_init();
 
     /* Init postfilter */
@@ -130,7 +131,11 @@ int tlcs_decode(TlcsDecoder *dec, const uint8_t *buf, int buf_size,
                 int16_t *pcm)
 {
     if (!dec || !buf || !pcm) return TLCS_ERR_ARGS;
-    if (buf_size < TLCS_BYTES_PER_FRAME) return TLCS_ERR_STREAM;
+    /* Determine mode from buffer size: 13 bytes = 5k, 20 bytes = 8k */
+    int is_5k = (buf_size < TLCS_BYTES_PER_FRAME);
+    int min_bytes = is_5k ? TLCS_5K_BYTES_PER_FRAME : TLCS_BYTES_PER_FRAME;
+    if (buf_size < min_bytes) return TLCS_ERR_STREAM;
+    int num_pulses = is_5k ? TLCS_5K_ACB_NUM_PULSES : TLCS_ACB_NUM_PULSES;
 
     const int N = TLCS_FRAME_SIZE;
     const int Nsub = TLCS_SUBFRAME_SIZE;
@@ -138,12 +143,15 @@ int tlcs_decode(TlcsDecoder *dec, const uint8_t *buf, int buf_size,
 
     /* ---- 1. Unpack bitstream ---- */
     TlcsFrameData fd;
-    int ret = tlcs_frame_unpack(buf, buf_size, &fd);
+    int ret = tlcs_frame_unpack_mode(buf, buf_size, &fd, is_5k);
     if (ret != TLCS_OK) return ret;
 
     /* ---- 2. Dequantize LSPs ---- */
     float lsp_q[TLCS_LPC_ORDER];
-    tlcs_lsp_vq_dequantize(fd.lsp_indices, lsp_q);
+    if (is_5k)
+        tlcs_lsp_vq_dequantize_5k(fd.lsp_indices, lsp_q);
+    else
+        tlcs_lsp_vq_dequantize(fd.lsp_indices, lsp_q);
     tlcs_lsp_stabilize(lsp_q, P, 0.05f);
 
     /* ---- 3. Subframe synthesis ---- */
@@ -194,9 +202,10 @@ int tlcs_decode(TlcsDecoder *dec, const uint8_t *buf, int buf_size,
         tlcs_pitch_build_acb_2basis(dec->exc_buf, dec->exc_len,
                                      pitch_lag, Nsub, acb_basis0, acb_basis1);
 
-        /* Build fixed codebook excitation (8 pulses, split index) */
+        /* Build fixed codebook excitation (N pulses, split index) */
         float *fcb_exc = (float *)malloc((size_t)Nsub * sizeof(float));
-        tlcs_acb_decode(sd->fcb_index_lo, sd->fcb_index_hi, Nsub, fcb_exc);
+        tlcs_acb_decode_n(sd->fcb_index_lo, sd->fcb_index_hi, Nsub,
+                          num_pulses, fcb_exc);
 
         /* Combine excitations: acb = g0*basis0 + g1*basis1 */
         float *total_exc = (float *)malloc((size_t)Nsub * sizeof(float));

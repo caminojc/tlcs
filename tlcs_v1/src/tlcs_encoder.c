@@ -131,6 +131,7 @@ TlcsEncoder* tlcs_encoder_create(int sample_rate, int bitrate_bps)
 
     /* Init VQ codebooks */
     tlcs_lsp_vq_init();
+    tlcs_lsp_vq_init_5k();
     tlcs_gain_vq_init();
 
     return enc;
@@ -166,7 +167,10 @@ int tlcs_encode(TlcsEncoder *enc, const int16_t *pcm,
                 uint8_t *buf, int buf_size)
 {
     if (!enc || !pcm || !buf) return TLCS_ERR_ARGS;
-    if (buf_size < TLCS_BYTES_PER_FRAME) return TLCS_ERR_ARGS;
+    int is_5k = TLCS_IS_5K(enc->bitrate);
+    int min_bytes = is_5k ? TLCS_5K_BYTES_PER_FRAME : TLCS_BYTES_PER_FRAME;
+    if (buf_size < min_bytes) return TLCS_ERR_ARGS;
+    int num_pulses = is_5k ? TLCS_5K_ACB_NUM_PULSES : TLCS_ACB_NUM_PULSES;
 
     const int N = TLCS_FRAME_SIZE;
     const int Nsub = TLCS_SUBFRAME_SIZE;
@@ -199,7 +203,10 @@ int tlcs_encode(TlcsEncoder *enc, const int16_t *pcm,
 
     int lsp_indices[TLCS_LSP_NUM_SPLITS];
     float lsp_q[TLCS_LPC_ORDER];
-    tlcs_lsp_vq_quantize(lsp_curr, lsp_indices, lsp_q);
+    if (is_5k)
+        tlcs_lsp_vq_quantize_5k(lsp_curr, lsp_indices, lsp_q);
+    else
+        tlcs_lsp_vq_quantize(lsp_curr, lsp_indices, lsp_q);
     tlcs_lsp_stabilize(lsp_q, P, 0.05f);
 
     /* ---- 5. Open-loop pitch estimate ---- */
@@ -355,8 +362,8 @@ int tlcs_encode(TlcsEncoder *enc, const int16_t *pcm,
         int fcb_index_lo, fcb_index_hi;
         float cb_gain;
         float *fcb_exc = (float *)malloc((size_t)Nsub * sizeof(float));
-        tlcs_acb_search(target2, h, Nsub,
-                        &fcb_index_lo, &fcb_index_hi, &cb_gain, fcb_exc);
+        tlcs_acb_search_n(target2, h, Nsub, num_pulses,
+                          &fcb_index_lo, &fcb_index_hi, &cb_gain, fcb_exc);
 
         /* ---- Joint gain optimization (MLOW 2-basis style) ---- */
         /* Search over 8-entry (g0,g1) ACB codebook × FCB gain dB steps.
@@ -483,7 +490,7 @@ int tlcs_encode(TlcsEncoder *enc, const int16_t *pcm,
     memcpy(enc->synth_mem, synth_mem, P * sizeof(float));
 
     /* Pack bitstream */
-    return tlcs_frame_pack(&fd, buf, buf_size);
+    return tlcs_frame_pack_mode(&fd, buf, buf_size, is_5k);
 }
 
 /* Temporary debug function */

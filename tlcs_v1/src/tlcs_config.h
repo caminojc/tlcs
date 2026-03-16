@@ -101,10 +101,26 @@
 /* ── Rate control ──────────────────────────────────────── */
 #define TLCS_RATE_CONT_GAIN     0.05f
 
-/* ── Bit budget verification ───────────────────────────── */
+/* ── Bit budget verification (8 kbps) ─────────────────── */
 /* LSP(32) + pitch(11+8=19) + 2×(FCB(48) + gain(4)) = 32+19+104 = 155
  * Plus pitch_gain for SF0 is in pitch bits. Spare: 5 bits for VUV/future.
  * Actually: 32 + 19 + 2*(48+4) = 32+19+104 = 155. 5 spare bits. */
 #define TLCS_SPARE_BITS  (TLCS_BITS_PER_FRAME - TLCS_LSP_TOTAL_BITS - TLCS_PITCH_TOTAL_BITS - TLCS_NUM_SUBFRAMES * (TLCS_ACB_BITS_PER_SUB + TLCS_GAIN_BITS_PER_SUB))
+
+/* ── 5 kbps mode ──────────────────────────────────────── */
+#define TLCS_5K_BITRATE_BPS     5000
+#define TLCS_5K_BITS_PER_FRAME  100
+#define TLCS_5K_BYTES_PER_FRAME 13   /* ceil(100/8) */
+#define TLCS_5K_LSP_CB_BITS     6    /* 64 entries per split */
+#define TLCS_5K_LSP_CB_SIZE     64
+#define TLCS_5K_ACB_NUM_PULSES  4
+/* 5k FCB: 4 pulses × 6 bits = 24 bits per subframe */
+#define TLCS_5K_ACB_BITS_PER_SUB (TLCS_5K_ACB_NUM_PULSES * (TLCS_ACB_POS_BITS + 1))
+/* 5k total: LSP(24) + pitch(19) + 2×(FCB(24) + gain(4)) = 24+19+56 = 99, 1 spare */
+#define TLCS_5K_SPARE_BITS  (TLCS_5K_BITS_PER_FRAME - TLCS_5K_LSP_CB_BITS * TLCS_LSP_NUM_SPLITS - TLCS_PITCH_TOTAL_BITS - TLCS_NUM_SUBFRAMES * (TLCS_5K_ACB_BITS_PER_SUB + TLCS_GAIN_BITS_PER_SUB))
+
+/* ── Runtime mode helper ─────────────────────────────────
+ * is_5k = (bitrate <= 6000) */
+#define TLCS_IS_5K(bitrate) ((bitrate) <= 6000)
 
 #endif /* TLCS_CONFIG_H */

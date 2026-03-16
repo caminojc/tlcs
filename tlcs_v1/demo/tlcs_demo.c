@@ -245,10 +245,13 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    uint8_t frame_buf[TLCS_BYTES_PER_FRAME + 4]; /* small margin */
+    int is_5k = TLCS_IS_5K(bitrate);
+    int bytes_per_frame = is_5k ? TLCS_5K_BYTES_PER_FRAME : TLCS_BYTES_PER_FRAME;
+    uint8_t frame_buf[TLCS_BYTES_PER_FRAME + 4]; /* large enough for both modes */
     int total_bytes = 0;
 
-    printf("\nEncoding %d frames (%d bytes/frame)...\n", num_frames, TLCS_BYTES_PER_FRAME);
+    printf("\nEncoding %d frames (%d bytes/frame, %s mode)...\n",
+           num_frames, bytes_per_frame, is_5k ? "5k" : "8k");
 
     for (int i = 0; i < num_frames; i++) {
         const int16_t *in_frame = &padded[i * N];

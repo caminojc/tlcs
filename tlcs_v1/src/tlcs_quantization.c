@@ -88,6 +88,75 @@ void tlcs_lsp_vq_dequantize(const int *indices, float *lsp_out)
 }
 
 /* ================================================================== */
+/* LSP Split VQ — 5 kbps mode (64 entries per split, 6 bits)           */
+/* ================================================================== */
+
+#define LSP_5K_CB_SIZE  64
+
+static float lsp_codebook_5k[TLCS_LSP_NUM_SPLITS][LSP_5K_CB_SIZE][LSP_SPLIT_DIM];
+static int   lsp_vq_5k_ready = 0;
+
+void tlcs_lsp_vq_init_5k(void)
+{
+    if (lsp_vq_5k_ready) return;
+
+    const float *trained[4] = {
+        (const float *)tlcs_lsp_cb_split0_64,
+        (const float *)tlcs_lsp_cb_split1_64,
+        (const float *)tlcs_lsp_cb_split2_64,
+        (const float *)tlcs_lsp_cb_split3_64,
+    };
+    for (int s = 0; s < TLCS_LSP_NUM_SPLITS; s++) {
+        memcpy(lsp_codebook_5k[s], trained[s],
+               (size_t)(LSP_5K_CB_SIZE * LSP_SPLIT_DIM) * sizeof(float));
+    }
+
+    lsp_vq_5k_ready = 1;
+}
+
+void tlcs_lsp_vq_quantize_5k(const float *lsp, int *indices, float *lsp_q)
+{
+    if (!lsp_vq_5k_ready) tlcs_lsp_vq_init_5k();
+
+    for (int s = 0; s < TLCS_LSP_NUM_SPLITS; s++) {
+        const float *sub = &lsp[s * LSP_SPLIT_DIM];
+        int best_idx = 0;
+        float best_dist = 1e30f;
+
+        for (int i = 0; i < LSP_5K_CB_SIZE; i++) {
+            float dist = 0.0f;
+            for (int d = 0; d < LSP_SPLIT_DIM; d++) {
+                float diff = sub[d] - lsp_codebook_5k[s][i][d];
+                dist += diff * diff;
+            }
+            if (dist < best_dist) {
+                best_dist = dist;
+                best_idx = i;
+            }
+        }
+
+        indices[s] = best_idx;
+        for (int d = 0; d < LSP_SPLIT_DIM; d++) {
+            lsp_q[s * LSP_SPLIT_DIM + d] = lsp_codebook_5k[s][best_idx][d];
+        }
+    }
+}
+
+void tlcs_lsp_vq_dequantize_5k(const int *indices, float *lsp_out)
+{
+    if (!lsp_vq_5k_ready) tlcs_lsp_vq_init_5k();
+
+    for (int s = 0; s < TLCS_LSP_NUM_SPLITS; s++) {
+        int idx = indices[s];
+        if (idx < 0) idx = 0;
+        if (idx >= LSP_5K_CB_SIZE) idx = LSP_5K_CB_SIZE - 1;
+        for (int d = 0; d < LSP_SPLIT_DIM; d++) {
+            lsp_out[s * LSP_SPLIT_DIM + d] = lsp_codebook_5k[s][idx][d];
+        }
+    }
+}
+
+/* ================================================================== */
 /* Joint Gain VQ                                                       */
 /* ================================================================== */
 

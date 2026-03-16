@@ -48,4 +48,8 @@ int tlcs_frame_pack(const TlcsFrameData *fd, uint8_t *buf, int buf_size);
 /* Unpack buf into TlcsFrameData. Returns 0 on success. */
 int tlcs_frame_unpack(const uint8_t *buf, int buf_size, TlcsFrameData *fd);
 
+/* Mode-aware pack/unpack: is_5k selects 5 kbps (100 bits) or 8 kbps (160 bits). */
+int tlcs_frame_pack_mode(const TlcsFrameData *fd, uint8_t *buf, int buf_size, int is_5k);
+int tlcs_frame_unpack_mode(const uint8_t *buf, int buf_size, TlcsFrameData *fd, int is_5k);
+
 #endif /* TLCS_BITSTREAM_H */
