@@ -116,7 +116,7 @@ function submitRatings() {
     const body = `Rater: ${name}\nRated: ${rated}/${pairs.length}\nSummary: ${JSON.stringify(counts)}\n\nData:\n${compact}`;
 
     // mailto — works everywhere, no APIs, no popups
-    const mailto = `mailto:jc@caminojc.com?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    const mailto = `mailto:jc@simplertc.com?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
     window.location.href = mailto;
 
     document.getElementById('submit-msg').style.display = 'block';
@@ -124,7 +124,7 @@ function submitRatings() {
 }
 
 // Clear old ratings when pairs change (version key)
-const PAIRS_VERSION = 'v5';  // bump this when re-randomizing
+const PAIRS_VERSION = 'v6';  // bump this when re-randomizing
 const savedVersion = localStorage.getItem('tlc_ab_version');
 if (savedVersion !== PAIRS_VERSION) {
     localStorage.removeItem('tlc_ab_ratings');
