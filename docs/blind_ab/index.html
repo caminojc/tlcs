@@ -106,20 +106,21 @@ function submitRatings() {
     }));
 
     const rated = result.filter(r => r.preference !== 'not_rated').length;
-    const payload = JSON.stringify({rater: name, rated: rated, total: pairs.length, ratings: result}, null, 2);
+    const rated = result.filter(r => r.preference !== 'not_rated').length;
+    const counts = {};
+    result.forEach(r => { counts[r.preference] = (counts[r.preference]||0) + 1; });
 
-    // Copy to clipboard and show confirmation
-    navigator.clipboard.writeText(payload).then(() => {
-        document.getElementById('submit-msg').style.display = 'block';
-        document.getElementById('submit-msg').innerHTML =
-            `<b>Copied to clipboard! Thank you, ${name}.</b><br>` +
-            `<span style="color:#888">Paste into Slack, email, or a GitHub issue.</span>`;
-    }).catch(() => {
-        document.getElementById('submit-msg').style.display = 'block';
-        document.getElementById('submit-msg').innerHTML =
-            `<b>Thank you, ${name}!</b> Select all and copy:<br>` +
-            `<textarea style="width:100%;height:150px;background:#0a0a0a;color:#ccc;border:1px solid #333;margin-top:0.5rem;font-size:0.75rem" readonly onclick="this.select()">${payload}</textarea>`;
-    });
+    // Compact format: id:preference pairs
+    const compact = result.map(r => `${r.id}:${r.preference}`).join(',');
+    const subject = `TLC AB ratings: ${name} (${rated}/${pairs.length})`;
+    const body = `Rater: ${name}\nRated: ${rated}/${pairs.length}\nSummary: ${JSON.stringify(counts)}\n\nData:\n${compact}`;
+
+    // mailto — works everywhere, no APIs, no popups
+    const mailto = `mailto:jc@caminojc.com?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    window.location.href = mailto;
+
+    document.getElementById('submit-msg').style.display = 'block';
+    document.getElementById('submit-msg').textContent = 'Email opened — just hit Send. Thank you, ' + name + '!';
 }
 
 // Clear old ratings when pairs change (version key)
