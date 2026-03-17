@@ -374,6 +374,16 @@ static void celp_encode_core(tlcs_encoder *enc,
             for (int32_t i = 0; i < subfr; i++)
                 w_innov[i] = w_target[i] - g0 * w_v0[i] - g1 * w_v1[i];
 
+            /* Pitch sharpening of innovation target (SMPL-style):
+             * For voiced frames, add a fraction of the pitch-delayed innovation
+             * to bias the codebook search toward pitch-harmonic positions. */
+            if (cl_lag >= 20 && g0 > 0.4f && cl_lag < subfr) {
+                float sharp = 0.3f * g0;  /* proportional to voicing */
+                if (sharp > 0.35f) sharp = 0.35f;
+                for (int32_t i = cl_lag; i < subfr; i++)
+                    w_innov[i] += sharp * w_innov[i - cl_lag];
+            }
+
             /* Algebraic codebook search with pitch-adaptive tilt */
             float h_w_tilt[TLCS_MAX_SUBFR_SIZE];
             float *h_search = h_w_tilt;
@@ -381,8 +391,9 @@ static void celp_encode_core(tlcs_encoder *enc,
                 float w_innov_tilt[TLCS_MAX_SUBFR_SIZE];
                 float tilt;
                 if (subfr >= 80) {
-                    /* LR mode: no tilt for sparse pulses. */
-                    tilt = 0.0f;
+                    /* LR mode: mild tilt to improve pitch tracking */
+                    tilt = -0.15f;
+                    if (g0 < 0.3f) tilt = 0.0f;  /* unvoiced: no tilt */
                 } else {
                     tilt = -0.3f;
                     if (cl_lag < 60)       tilt = -0.10f;

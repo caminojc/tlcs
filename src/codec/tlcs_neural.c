@@ -164,9 +164,9 @@ void tlcs_neural_generate(tlcs_neural_state *state,
 
     /* Build conditioning vector */
     float cond[TN_COND_DIM];
-    for (int32_t i = 0; i <= LPC_ORDER; i++) cond[i] = lpc[i];
-    cond[LPC_ORDER + 1] = (float)pitch_lag / 300.0f;
-    cond[LPC_ORDER + 2] = voicing;
+    for (int32_t i = 0; i <= TLCS_LPC_ORDER_WB; i++) cond[i] = lpc[i];
+    cond[TLCS_LPC_ORDER_WB + 1] = (float)pitch_lag / 300.0f;
+    cond[TLCS_LPC_ORDER_WB + 2] = voicing;
 
     /* Conditioning network (frame-rate, compute once) */
     float c1[64], c2[64];

@@ -1,0 +1,44 @@
+[
+  {
+    "id": 0,
+    "speaker": "1284-1180-0032",
+    "a_file": "../audio/1284-1180-0032_tcx5-old.wav",
+    "b_file": "../audio/1284-1180-0032_tlcs-5.0k.wav",
+    "orig_file": "../audio/1284-1180-0032.wav"
+  },
+  {
+    "id": 1,
+    "speaker": "908-157963-0014",
+    "a_file": "../audio/908-157963-0014_tlcs-9.6k.wav",
+    "b_file": "../audio/908-157963-0014_tcx-old.wav",
+    "orig_file": "../audio/908-157963-0014.wav"
+  },
+  {
+    "id": 2,
+    "speaker": "1284-1180-0032",
+    "a_file": "../audio/1284-1180-0032_tlcs-9.6k.wav",
+    "b_file": "../audio/1284-1180-0032_tcx-old.wav",
+    "orig_file": "../audio/1284-1180-0032.wav"
+  },
+  {
+    "id": 3,
+    "speaker": "5639-40744-0005",
+    "a_file": "../audio/5639-40744-0005_tcx-old.wav",
+    "b_file": "../audio/5639-40744-0005_tlcs-9.6k.wav",
+    "orig_file": "../audio/5639-40744-0005.wav"
+  },
+  {
+    "id": 4,
+    "speaker": "5639-40744-0005",
+    "a_file": "../audio/5639-40744-0005_tcx5-old.wav",
+    "b_file": "../audio/5639-40744-0005_tlcs-5.0k.wav",
+    "orig_file": "../audio/5639-40744-0005.wav"
+  },
+  {
+    "id": 5,
+    "speaker": "908-157963-0014",
+    "a_file": "../audio/908-157963-0014_tlcs-5.0k.wav",
+    "b_file": "../audio/908-157963-0014_tcx5-old.wav",
+    "orig_file": "../audio/908-157963-0014.wav"
+  }
+]

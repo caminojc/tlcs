@@ -26,6 +26,7 @@ add_library(tlcs_core STATIC
     codec/tlcs_tcx.c
     codec/tlcs_mode.c
     codec/pffft.c
+    codec/tlcs_neural.c
     codec/tlcs_encoder.c
     codec/tlcs_decoder.c
     codec/tlcs_diag_encode.c

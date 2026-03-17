@@ -11,3 +11,6 @@ target_link_libraries(tlcs_diag PRIVATE tlcs_core)
 
 add_executable(qmf_test qmf_test.c)
 target_link_libraries(qmf_test PRIVATE tlcs_core)
+
+add_executable(tlcs_neural_demo tlcs_neural_demo.c)
+target_link_libraries(tlcs_neural_demo PRIVATE tlcs_core)
