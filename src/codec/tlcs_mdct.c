@@ -11,35 +11,33 @@
 /* ══════════════════════════════════════════════════════════════════════════
  * FFT-accelerated forward MDCT using PFFFT.
  *
- * MDCT of size N (N = 2*frame_size, M = frame_size) via M/2-point
- * complex FFT with pre/post twiddle rotations (Opus/CELT algorithm).
- *
- * Steps:
+ * MDCT of size N (N = 2*frame_size, M = frame_size):
  *   1. Window + fold N samples → M real values (standard MDCT fold)
- *   2. Pack M reals as M/2 complex pairs, pre-rotate by twiddle
- *   3. M/2-point complex FFT (PFFFT)
- *   4. Post-rotate to extract DCT-IV coefficients
+ *   2. DCT-IV of folded signal via 2M-point complex FFT:
+ *      a. Pre-twiddle: z[n] = folded[n] * exp(-j*pi*n/(2M)), zero-pad to 2M
+ *      b. 2M-point complex FFT (PFFFT)
+ *      c. Post-twiddle: X[k] = Re(Z[k]*exp(-j*pi*(2k+1)/(4M)))
  *
  * Complexity: O(M log M) vs O(M²) for brute-force DCT-IV.
  *
  * PFFFT complex FFT requires N % 16 == 0.
- * frame_size=320 → M/2=160, 160%16=0 ✓
- * frame_size=160 → M/2=80,   80%16=0 ✓
+ * frame_size=320 → 2M=640, 640%16=0 ✓
+ * frame_size=160 → 2M=320, 320%16=0 ✓
  * ══════════════════════════════════════════════════════════════════════════ */
 
-/* Lazy-initialized PFFFT complex FFT setups (size = frame_size / 2) */
-static PFFFT_Setup *cfft_setup_160 = NULL;  /* for frame_size=320, M/2=160 */
-static PFFFT_Setup *cfft_setup_80  = NULL;  /* for frame_size=160, M/2=80  */
+/* Lazy-initialized PFFFT complex FFT setups (size = 2 * frame_size) */
+static PFFFT_Setup *cfft_setup_640 = NULL;  /* for frame_size=320, 2M=640 */
+static PFFFT_Setup *cfft_setup_320 = NULL;  /* for frame_size=160, 2M=320 */
 
-static PFFFT_Setup *get_cfft_setup(int32_t half_m)
+static PFFFT_Setup *get_cfft_setup(int32_t two_m)
 {
-    if (half_m == 160) {
-        if (!cfft_setup_160) cfft_setup_160 = pffft_new_setup(160, PFFFT_COMPLEX);
-        return cfft_setup_160;
+    if (two_m == 640) {
+        if (!cfft_setup_640) cfft_setup_640 = pffft_new_setup(640, PFFFT_COMPLEX);
+        return cfft_setup_640;
     }
-    if (half_m == 80) {
-        if (!cfft_setup_80) cfft_setup_80 = pffft_new_setup(80, PFFFT_COMPLEX);
-        return cfft_setup_80;
+    if (two_m == 320) {
+        if (!cfft_setup_320) cfft_setup_320 = pffft_new_setup(320, PFFFT_COMPLEX);
+        return cfft_setup_320;
     }
     return NULL;  /* unsupported size — fallback to brute force */
 }
@@ -50,9 +48,9 @@ void tlcs_mdct_forward(const float *prev_block, const float *curr_block,
 {
     int32_t N = 2 * frame_size;
     int32_t M = frame_size;
-    int32_t M2 = M / 2;    /* complex FFT size */
+    int32_t L = 2 * M;     /* complex FFT size */
 
-    PFFFT_Setup *setup = get_cfft_setup(M2);
+    PFFFT_Setup *setup = get_cfft_setup(L);
 
     if (!setup) {
         /* Fallback: brute-force for unsupported sizes */
@@ -97,62 +95,47 @@ void tlcs_mdct_forward(const float *prev_block, const float *curr_block,
     }
     pffft_aligned_free(buf);
 
-    /* ── Step 2: Pre-rotation ────────────────────────────────────────── */
-    /* Pack folded[0..M-1] as M/2 complex pairs and multiply by twiddle.
+    /* ── Step 2: Pre-twiddle + 2M-point complex FFT ──────────────────── */
+    /* Compute DCT-IV of folded[0..M-1] via 2M-point complex FFT.
      *
-     * Complex input:  z[i] = folded[2i] + j*folded[2i+1]
-     * Twiddle:        t[i] = exp(-j * 2*pi*(i + 1/8) / N)
-     *                      = exp(-j * pi*(8i+1) / (4M))
-     * Pre-rotated:    z'[i] = z[i] * t[i]
+     * Pre-twiddle: z[n] = folded[n] * exp(-j*pi*n/(2M))  for n=0..M-1
+     *              z[n] = 0                                for n=M..2M-1
      *
-     * This is the same twiddle as Opus/CELT (cos(2*pi*(i+0.125)/N)). */
-    float *fft_in = (float *)pffft_aligned_malloc((size_t)(2 * M2) * sizeof(float));
-    for (int32_t i = 0; i < M2; i++) {
-        float angle = (float)M_PI * (float)(8 * i + 1) / (float)(4 * M);
-        float t_cos = cosf(angle);
-        float t_sin = sinf(angle);
-        float re = folded[2 * i];
-        float im = folded[2 * i + 1];
-        /* z'[i] = (re + j*im) * (cos - j*sin) = (re*cos + im*sin) + j*(im*cos - re*sin) */
-        fft_in[2 * i]     = re * t_cos + im * t_sin;
-        fft_in[2 * i + 1] = im * t_cos - re * t_sin;
+     * Then DFT_{2M}[k](z) = sum_{n<M} folded[n]*exp(-j*pi*n*(2k+1)/(2M))
+     *
+     * Post-twiddle:
+     * DCT-IV[k] = Re(DFT[k]) * cos(alpha_k) + Im(DFT[k]) * sin(alpha_k)
+     * where alpha_k = pi*(2k+1)/(4M)
+     */
+    float *fft_in  = (float *)pffft_aligned_malloc((size_t)(2 * L) * sizeof(float));
+    float *fft_out = (float *)pffft_aligned_malloc((size_t)(2 * L) * sizeof(float));
+
+    /* Zero the entire input (covers zero-padding for n=M..2M-1) */
+    memset(fft_in, 0, (size_t)(2 * L) * sizeof(float));
+
+    /* Pre-twiddle: z[n] = folded[n] * exp(-j*pi*n/(2M)) for n=0..M-1 */
+    float inv_2M = 1.0f / (float)(2 * M);
+    for (int32_t n = 0; n < M; n++) {
+        float angle = (float)M_PI * (float)n * inv_2M;
+        fft_in[2 * n]     =  folded[n] * cosf(angle);   /* real */
+        fft_in[2 * n + 1] = -folded[n] * sinf(angle);   /* imag */
     }
     pffft_aligned_free(folded);
 
-    /* ── Step 3: M/2-point complex FFT ───────────────────────────────── */
-    float *fft_out = (float *)pffft_aligned_malloc((size_t)(2 * M2) * sizeof(float));
+    /* ── Step 3: 2M-point complex FFT ────────────────────────────────── */
     pffft_transform_ordered(setup, fft_in, fft_out, NULL, PFFFT_FORWARD);
     pffft_aligned_free(fft_in);
 
-    /* ── Step 4: Post-rotation ───────────────────────────────────────── */
-    /* For FFT output Z[k], apply twiddle and extract MDCT coefficients.
+    /* ── Step 4: Post-twiddle ────────────────────────────────────────── */
+    /* DCT-IV[k] = Re(DFT[k])*cos(alpha_k) + Im(DFT[k])*sin(alpha_k)
+     * where alpha_k = pi*(2k+1)/(4M)
      *
-     * Twiddle:  t[k] = exp(-j * pi*(8k+1) / (4M))
-     * Rotated:  w[k] = Z[k] * t[k]
-     *
-     * Then (following Opus/CELT sign convention for correct MDCT):
-     *   out[2k]     = -(w[k].im * (-sin) - w[k].re * cos)  ... see below
-     *   out[M-1-2k] = ...
-     *
-     * The Opus post-rotate extracts:
-     *   yr = Z.im*t_msin - Z.re*t_cos   (= -(Z.re*cos + Z.im*sin))
-     *   yi = Z.re*t_msin + Z.im*t_cos   (=  (Z.im*cos - Z.re*sin))
-     *   out[2k]     = yr
-     *   out[M-1-2k] = yi
-     *
-     * Scale by 2/N to match brute-force MDCT normalization. */
-    float scale = 2.0f / (float)N;
-    for (int32_t k = 0; k < M2; k++) {
-        float angle = (float)M_PI * (float)(8 * k + 1) / (float)(4 * M);
-        float t_cos = cosf(angle);
-        float t_sin = sinf(angle);
-        float zr = fft_out[2 * k];
-        float zi = fft_out[2 * k + 1];
-        /* yr = -(zr*cos + zi*sin), yi = zi*cos - zr*sin */
-        float yr = -(zr * t_cos + zi * t_sin);
-        float yi =   zi * t_cos - zr * t_sin;
-        spec_out[2 * k]         = yr * scale;
-        spec_out[M - 1 - 2 * k] = yi * scale;
+     * No extra scaling: MDCT = DCT-IV(folded) by the folding identity. */
+    for (int32_t k = 0; k < M; k++) {
+        float re = fft_out[2 * k];
+        float im = fft_out[2 * k + 1];
+        float alpha = (float)M_PI * (float)(2 * k + 1) / (float)(4 * M);
+        spec_out[k] = re * cosf(alpha) + im * sinf(alpha);
     }
 
     pffft_aligned_free(fft_out);
