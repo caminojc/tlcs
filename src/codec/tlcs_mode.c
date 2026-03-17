@@ -20,16 +20,18 @@ int32_t tlcs_mode_decide(const float *speech, int32_t frame_size,
     (void)prev_mode;
 
     *hold_count = 3;
-    /* Check TLCS_MODE env var: "celp" forces CELP, default = TCX */
+    /* Check TLCS_MODE env var: celp/tcx/neural */
     {
-        static int checked = 0, force_celp = 0;
+        static int checked = 0, force_mode = -1;
         if (!checked) {
             const char *m = getenv("TLCS_MODE");
-            if (m && (m[0] == 'c' || m[0] == 'C' || m[0] == 's' || m[0] == 'S'))
-                force_celp = 1;
+            if (m) {
+                if (m[0] == 'c' || m[0] == 'C') force_mode = TLCS_CODEC_MODE_S;
+                else if (m[0] == 'n' || m[0] == 'N') force_mode = TLCS_CODEC_MODE_N;
+            }
             checked = 1;
         }
-        if (force_celp) return TLCS_CODEC_MODE_S;
+        if (force_mode >= 0) return force_mode;
     }
     return TLCS_CODEC_MODE_T;
 }

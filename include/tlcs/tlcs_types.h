@@ -53,12 +53,16 @@ typedef enum {
     TLCS_MODE_SILENCE    = 3
 } tlcs_frame_mode;
 
-/* ── Codec mode (1 bit in bitstream, HR only) ─────────────────── */
+/* ── Codec mode (2 bits in bitstream) ──────────────────────────── */
 
 typedef enum {
     TLCS_CODEC_MODE_S    = 0,   /* CELP (speech/predictive) */
-    TLCS_CODEC_MODE_T    = 1    /* TCX (transform) */
+    TLCS_CODEC_MODE_T    = 1,   /* TCX (transform) */
+    TLCS_CODEC_MODE_N    = 2    /* Neural (GRU excitation) */
 } tlcs_codec_mode;
+
+/* Neural mode bitrate threshold */
+#define TLCS_NEURAL_BITRATE_THRESHOLD 4000
 
 /* ── Codec configuration ───────────────────────────────────────── */
 
@@ -215,6 +219,11 @@ typedef struct {
     int32_t  prev_codec_mode;                       /* previous frame's codec mode */
     float    mdct_overlap[TLCS_MAX_FRAME_SIZE];     /* IMDCT overlap-add buffer */
     float    tcx_synth_mem[TLCS_LPC_ORDER_MAX];     /* LPC synthesis memory for TCX */
+
+    /* Neural mode state (Mode N) */
+    void    *neural_state;          /* opaque pointer to tlcs_neural_state */
+    float    neural_synth_mem[TLCS_LPC_ORDER_MAX]; /* LPC synthesis memory for neural */
+    float    neural_energy_scale;   /* dequantized energy gain */
 } tlcs_decoder;
 
 #endif /* TLCS_TYPES_H */

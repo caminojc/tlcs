@@ -8,11 +8,16 @@
 #include "tlcs_tcx.h"
 #include "tlcs_tune.h"
 #include "tlcs_mode.h"
+#include "tlcs_neural.h"
 #include "../bitstream/tlcs_bitstream.h"
 #include "../entropy/tlcs_range_coder.h"
 #include "../entropy/tlcs_ec_models.h"
 #include <string.h>
 #include <math.h>
+
+/* Forward declarations for mode decoders */
+static tlcs_status decode_neural(tlcs_decoder *dec, tlcs_bs_reader *bsr,
+                                   int32_t bytes_in, int16_t *pcm_out);
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -2020,19 +2025,140 @@ static tlcs_status decode_hr_hybrid(tlcs_decoder *dec,
     tlcs_bs_reader_init(&bsr, bitstream_in, bytes_in);
 
     uint32_t mode_val;
-    tlcs_bs_read(&bsr, &mode_val, 1);
+    tlcs_bs_read(&bsr, &mode_val, 2);  /* 2-bit mode */
 
     if (mode_val == TLCS_CODEC_MODE_T) {
         return decode_tcx(dec, &bsr, bytes_in, pcm_out);
     }
+    if (mode_val == TLCS_CODEC_MODE_N) {
+        return decode_neural(dec, &bsr, bytes_in, pcm_out);
+    }
 
-    /* Mode S (CELP): currently dead code — mode decision always returns T.
-     * Fall back to decode_direct (creates its own reader from byte 0). */
+    /* Mode S (CELP) */
     return decode_direct(dec, bitstream_in, bytes_in, pcm_out);
 }
 
 /* ══════════════════════════════════════════════════════════════════
- *  LR Hybrid Decoder: reads mode bit, dispatches to CELP or TCX.
+ *  Neural Decoder (Mode N)
+ *  Unpacks LPC+pitch+voicing, runs GRU excitation, LPC synthesis.
+ *  54 bits/frame = 2.7 kbps.
+ * ══════════════════════════════════════════════════════════════════ */
+
+static tlcs_status decode_neural(tlcs_decoder *dec,
+                                   tlcs_bs_reader *bsr,
+                                   int32_t bytes_in,
+                                   int16_t *pcm_out)
+{
+    const int32_t n     = dec->cfg.frame_size;
+    const int32_t order = dec->cfg.lpc_order;
+    (void)bytes_in;
+
+    /* ── LSF VQ (24 bits: 4 splits × 6 bits) ── */
+    float lsf_pred[TLCS_LPC_ORDER_MAX];
+    for (int32_t i = 0; i < order; i++)
+        lsf_pred[i] = (float)dec->prev_lsf[i] / 5000.0f;
+
+    float lsf[TLCS_LPC_ORDER_MAX];
+    {
+        int32_t vq_idx[4];
+        for (int32_t s = 0; s < 4; s++) {
+            uint32_t val;
+            tlcs_bs_read(bsr, &val, 6);
+            vq_idx[s] = (int32_t)val;
+        }
+        float delta_q[TLCS_LPC_ORDER_MAX];
+        tlcs_lsf_vq_decode_n(vq_idx, order, delta_q, 64);
+        for (int32_t i = 0; i < order; i++)
+            lsf[i] = lsf_pred[i] + delta_q[i];
+    }
+    tlcs_lsf_stabilize(lsf, order);
+
+    float a_q[TLCS_LPC_ORDER_MAX + 1];
+    tlcs_lsf_to_lpc(lsf, order, a_q);
+
+    /* ── Pitch (9 + 6 bits) ── */
+    uint32_t lag0_idx;
+    tlcs_bs_read(bsr, &lag0_idx, 9);
+    int32_t lag0, frac0;
+    tlcs_pitch_decode_lag((int32_t)lag0_idx, &lag0, &frac0);
+
+    uint32_t delta_val;
+    tlcs_bs_read(bsr, &delta_val, 6);
+    int32_t lag1 = lag0 + (int32_t)delta_val - 32;
+    if (lag1 < TLCS_MIN_PITCH_LAG) lag1 = TLCS_MIN_PITCH_LAG;
+    if (lag1 > TLCS_MAX_PITCH_LAG) lag1 = TLCS_MAX_PITCH_LAG;
+
+    /* ── Voicing (4 + 4 bits) ── */
+    uint32_t v0_val, v1_val;
+    tlcs_bs_read(bsr, &v0_val, 4);
+    tlcs_bs_read(bsr, &v1_val, 4);
+    float voicing0 = (float)v0_val / 15.0f;
+    float voicing1 = (float)v1_val / 15.0f;
+
+    /* ── Energy gain (5 bits) ── */
+    uint32_t gain_val;
+    tlcs_bs_read(bsr, &gain_val, 5);
+    float log_rms = (float)gain_val * 1.5f - 80.0f;
+    float energy_gain = powf(10.0f, log_rms / 20.0f);
+
+    /* ── Neural excitation generation ── */
+    float synth[TLCS_MAX_FRAME_SIZE];
+    int32_t half = n / 2;
+
+    if (dec->neural_state) {
+        tlcs_neural_state *ns = (tlcs_neural_state *)dec->neural_state;
+
+        /* First half-frame */
+        float exc0[TLCS_MAX_FRAME_SIZE / 2];
+        tlcs_neural_generate(ns, a_q, lag0, voicing0, exc0, half);
+
+        /* Second half-frame */
+        float exc1[TLCS_MAX_FRAME_SIZE / 2];
+        tlcs_neural_generate(ns, a_q, lag1, voicing1, exc1, half);
+
+        /* Scale by energy gain */
+        float exc[TLCS_MAX_FRAME_SIZE];
+        for (int32_t i = 0; i < half; i++)
+            exc[i] = exc0[i] * energy_gain * 4.0f;
+        for (int32_t i = 0; i < half; i++)
+            exc[half + i] = exc1[i] * energy_gain * 4.0f;
+
+        /* LPC synthesis */
+        float syn_mem[TLCS_LPC_ORDER_MAX];
+        memcpy(syn_mem, dec->neural_synth_mem, (size_t)order * sizeof(float));
+        tlcs_synthesis_filter(a_q, order, exc, synth, n, syn_mem);
+        memcpy(dec->neural_synth_mem, syn_mem, (size_t)order * sizeof(float));
+    } else {
+        /* No neural model loaded — output silence */
+        memset(synth, 0, (size_t)n * sizeof(float));
+    }
+
+    /* ── De-emphasis ── */
+    float deemph_mem_f = (float)dec->deemph_mem;
+    tlcs_deemph(synth, n, &deemph_mem_f);
+    dec->deemph_mem = (int16_t)deemph_mem_f;
+
+    /* ── Output ── */
+    for (int32_t i = 0; i < n; i++) {
+        float v = synth[i];
+        if (v > 32767.0f) v = 32767.0f;
+        if (v < -32768.0f) v = -32768.0f;
+        pcm_out[i] = (int16_t)v;
+    }
+
+    /* Update state */
+    for (int32_t i = 0; i < order; i++) {
+        dec->prev_prev_lsf[i] = dec->prev_lsf[i];
+        dec->prev_lsf[i] = (int16_t)(lsf[i] * 5000.0f);
+    }
+    dec->prev_codec_mode = TLCS_CODEC_MODE_N;
+    dec->frame_count++;
+
+    return TLCS_OK;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+ *  LR Hybrid Decoder: reads mode bits, dispatches to CELP, TCX, or Neural.
  * ══════════════════════════════════════════════════════════════════ */
 
 static tlcs_status decode_lr_hybrid(tlcs_decoder *dec,
@@ -2046,10 +2172,14 @@ static tlcs_status decode_lr_hybrid(tlcs_decoder *dec,
     tlcs_bs_reader_init(&bsr, bitstream_in, bytes_in);
 
     uint32_t mode_val;
-    tlcs_bs_read(&bsr, &mode_val, 1);
+    tlcs_bs_read(&bsr, &mode_val, 2);  /* 2-bit mode: S=00, T=01, N=10 */
 
     if (mode_val == TLCS_CODEC_MODE_T) {
         return decode_tcx(dec, &bsr, bytes_in, pcm_out);
+    }
+
+    if (mode_val == TLCS_CODEC_MODE_N) {
+        return decode_neural(dec, &bsr, bytes_in, pcm_out);
     }
 
     /* Mode S (CELP): reuse VLR decode core with reader past mode bit */
@@ -2073,6 +2203,19 @@ tlcs_status tlcs_decoder_init(tlcs_decoder *dec, const tlcs_config *cfg)
     for (int32_t i = 0; i < cfg->lpc_order; i++) {
         dec->prev_lsf[i] = (int16_t)(lsf_tmp[i] * 5000.0f);
         dec->prev_prev_lsf[i] = dec->prev_lsf[i];
+    }
+
+    /* Try to load neural model weights (Mode N) */
+    {
+        const char *weights_path = getenv("TLC_NEURAL_WEIGHTS");
+        if (!weights_path) weights_path = "models/tlc_neural.bin";
+        tlcs_neural_state *ns = (tlcs_neural_state *)malloc(sizeof(tlcs_neural_state));
+        if (ns && tlcs_neural_init(ns, weights_path) == 0) {
+            dec->neural_state = ns;
+        } else {
+            if (ns) free(ns);
+            dec->neural_state = NULL;
+        }
     }
 
     return TLCS_OK;

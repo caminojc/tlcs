@@ -1557,7 +1557,7 @@ static tlcs_status encode_hr_hybrid(tlcs_encoder *enc,
 
     tlcs_bs_writer bsw;
     tlcs_bs_writer_init(&bsw, bitstream_out, TLCS_MAX_FRAME_BYTES);
-    tlcs_bs_write(&bsw, (uint32_t)mode, 1);
+    tlcs_bs_write(&bsw, (uint32_t)mode, 2);  /* 2-bit mode */
 
     if (mode == TLCS_CODEC_MODE_T) {
         return encode_tcx(enc, pcm_in, &bsw, bitstream_out, bytes_written);
@@ -1594,10 +1594,125 @@ static tlcs_status encode_lr_hybrid(tlcs_encoder *enc,
 
     tlcs_bs_writer bsw;
     tlcs_bs_writer_init(&bsw, bitstream_out, TLCS_MAX_FRAME_BYTES);
-    tlcs_bs_write(&bsw, (uint32_t)mode, 1);
+    tlcs_bs_write(&bsw, (uint32_t)mode, 2);  /* 2-bit mode: S=00, T=01, N=10 */
 
     if (mode == TLCS_CODEC_MODE_T) {
         return encode_tcx(enc, pcm_in, &bsw, bitstream_out, bytes_written);
+    }
+
+    if (mode == TLCS_CODEC_MODE_N) {
+        /* Mode N (Neural): encode LPC + pitch + voicing only — 54 bits/frame = 2.7 kbps */
+        const int32_t n_enc = enc->cfg.frame_size;
+        const int32_t order = enc->cfg.lpc_order;
+
+        /* Pre-emphasis */
+        float speech_n[TLCS_MAX_FRAME_SIZE];
+        float pe_mem_n = (float)enc->preemph_mem;
+        for (int32_t i = 0; i < n_enc; i++) {
+            float s = (float)pcm_in[i] - TLCS_PREEMPH_COEFF * pe_mem_n;
+            pe_mem_n = (float)pcm_in[i];
+            speech_n[i] = s;
+        }
+        enc->preemph_mem = (int16_t)pe_mem_n;
+
+        /* LPC analysis (same as TCX) */
+        memmove(enc->speech_buf, enc->speech_buf + n_enc,
+                (size_t)TLCS_MAX_PITCH_LAG * sizeof(float));
+        memcpy(enc->speech_buf + TLCS_MAX_PITCH_LAG,
+               speech_n, (size_t)n_enc * sizeof(float));
+
+        int32_t win_prev = n_enc / 5;
+        int32_t win1_len = win_prev + n_enc - n_enc * 3 / 8;
+        int32_t win3_len = n_enc / 10;
+        int32_t win_ones = (win_prev + n_enc) - win1_len - win3_len;
+        int32_t ana_len = win1_len + win_ones + win3_len;
+
+        float extended[TLCS_MAX_PITCH_LAG + TLCS_MAX_FRAME_SIZE];
+        memcpy(extended, &enc->speech_buf[TLCS_MAX_PITCH_LAG - win_prev],
+               (size_t)ana_len * sizeof(float));
+        float windowed[TLCS_MAX_PITCH_LAG + TLCS_MAX_FRAME_SIZE];
+        for (int32_t i = 0; i < win1_len; i++) {
+            float w = sinf((float)(i + 1) / (float)(win1_len + 1) * (float)M_PI * 0.5f);
+            windowed[i] = extended[i] * w;
+        }
+        for (int32_t i = 0; i < win_ones; i++)
+            windowed[win1_len + i] = extended[win1_len + i];
+        for (int32_t i = 0; i < win3_len; i++) {
+            float w = cosf((float)(i + 1) / (float)(win3_len + 1) * (float)M_PI * 0.5f);
+            windowed[win1_len + win_ones + i] = extended[win1_len + win_ones + i] * w;
+        }
+
+        float r[TLCS_LPC_ORDER_MAX + 1];
+        tlcs_autocorrelation(windowed, ana_len, r, order);
+        float a[TLCS_LPC_ORDER_MAX + 1];
+        tlcs_levinson(r, order, a, NULL);
+
+        float lsf[TLCS_LPC_ORDER_MAX];
+        if (tlcs_lpc_to_lsf(a, order, lsf) != 0) {
+            for (int32_t i = 0; i < order; i++)
+                lsf[i] = (float)enc->prev_lsf[i] / 5000.0f;
+        }
+        tlcs_lsf_stabilize(lsf, order);
+
+        /* LSF VQ (6-bit splits, VLR codebooks) */
+        float lsf_pred[TLCS_LPC_ORDER_MAX];
+        for (int32_t i = 0; i < order; i++)
+            lsf_pred[i] = (float)enc->prev_lsf[i] / 5000.0f;
+        float delta_raw[TLCS_LPC_ORDER_MAX];
+        for (int32_t i = 0; i < order; i++)
+            delta_raw[i] = lsf[i] - lsf_pred[i];
+        int32_t vq_idx[4];
+        float delta_q[TLCS_LPC_ORDER_MAX];
+        tlcs_lsf_vq_encode_n(delta_raw, order, vq_idx, delta_q, 64);
+        for (int32_t s = 0; s < 4; s++)
+            tlcs_bs_write(&bsw, (uint32_t)(vq_idx[s] & 0x3F), 6);
+
+        /* Pitch: two half-frames */
+        int32_t half = n_enc / 2;
+        float voicing0 = 0.0f, voicing1 = 0.0f;
+        int32_t lag0 = tlcs_pitch_ol_search(enc->speech_buf, half,
+                                             TLCS_MIN_PITCH_LAG, TLCS_MAX_PITCH_LAG, &voicing0);
+        int32_t lag1 = tlcs_pitch_ol_search(enc->speech_buf + half, half,
+                                             TLCS_MIN_PITCH_LAG, TLCS_MAX_PITCH_LAG, &voicing1);
+        int32_t lag0_idx = tlcs_pitch_encode_lag(lag0, 0);
+        tlcs_bs_write(&bsw, (uint32_t)lag0_idx, 9);
+        int32_t delta_lag = lag1 - lag0;
+        if (delta_lag < -32) delta_lag = -32;
+        if (delta_lag > 31) delta_lag = 31;
+        tlcs_bs_write(&bsw, (uint32_t)(delta_lag + 32), 6);
+
+        /* Voicing: 4 bits each */
+        int32_t v0 = (int32_t)(voicing0 * 15.0f + 0.5f);
+        int32_t v1 = (int32_t)(voicing1 * 15.0f + 0.5f);
+        if (v0 < 0) v0 = 0; if (v0 > 15) v0 = 15;
+        if (v1 < 0) v1 = 0; if (v1 > 15) v1 = 15;
+        tlcs_bs_write(&bsw, (uint32_t)v0, 4);
+        tlcs_bs_write(&bsw, (uint32_t)v1, 4);
+
+        /* Energy: 5-bit log scale */
+        float energy = 0.0f;
+        for (int32_t i = 0; i < n_enc; i++)
+            energy += speech_n[i] * speech_n[i];
+        float rms = sqrtf(energy / (float)n_enc);
+        float log_rms = 20.0f * log10f(rms + 1e-10f);
+        int32_t gain_idx = (int32_t)((log_rms + 80.0f) / 1.5f + 0.5f);
+        if (gain_idx < 0) gain_idx = 0;
+        if (gain_idx > 31) gain_idx = 31;
+        tlcs_bs_write(&bsw, (uint32_t)gain_idx, 5);
+
+        *bytes_written = tlcs_bs_writer_flush(&bsw);
+
+        /* Update state */
+        float lsf_q[TLCS_LPC_ORDER_MAX];
+        for (int32_t i = 0; i < order; i++)
+            lsf_q[i] = lsf_pred[i] + delta_q[i];
+        for (int32_t i = 0; i < order; i++) {
+            enc->prev_prev_lsf[i] = enc->prev_lsf[i];
+            enc->prev_lsf[i] = (int16_t)(lsf_q[i] * 5000.0f);
+        }
+        enc->prev_codec_mode = TLCS_CODEC_MODE_N;
+        enc->frame_count++;
+        return TLCS_OK;
     }
 
     /* Mode S (CELP): encode using CELP core, bitstream continues after mode bit */
