@@ -106,30 +106,24 @@ function submitRatings() {
     }));
 
     const rated = result.filter(r => r.preference !== 'not_rated').length;
-    const jsonText = JSON.stringify(result);
+    const payload = JSON.stringify({rater: name, rated: rated, total: pairs.length, ratings: result}, null, 2);
 
-    // Send to jsonbin.io (free, no auth needed for public bins)
-    fetch('https://api.jsonbin.io/v3/b', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json', 'X-Bin-Private': 'false'},
-        body: JSON.stringify({rater: name, rated: rated, total: pairs.length, ratings: result})
-    }).then(r => r.json()).then(data => {
-        const binId = data.metadata && data.metadata.id;
+    // Copy to clipboard and show confirmation
+    navigator.clipboard.writeText(payload).then(() => {
         document.getElementById('submit-msg').style.display = 'block';
         document.getElementById('submit-msg').innerHTML =
-            `<b>Submitted! Thank you, ${name}.</b><br>` +
-            (binId ? `<span style="color:#888;font-size:0.8rem">ID: ${binId}</span>` : '');
-    }).catch(err => {
-        // Fallback: show copyable data
+            `<b>Copied to clipboard! Thank you, ${name}.</b><br>` +
+            `<span style="color:#888">Paste into Slack, email, or a GitHub issue.</span>`;
+    }).catch(() => {
         document.getElementById('submit-msg').style.display = 'block';
         document.getElementById('submit-msg').innerHTML =
-            `<b>Could not auto-submit.</b> Please copy and send to the team:<br>` +
-            `<textarea style="width:100%;height:120px;background:#0a0a0a;color:#ccc;border:1px solid #333;margin-top:0.5rem;font-size:0.75rem" readonly onclick="this.select()">${jsonText}</textarea>`;
+            `<b>Thank you, ${name}!</b> Select all and copy:<br>` +
+            `<textarea style="width:100%;height:150px;background:#0a0a0a;color:#ccc;border:1px solid #333;margin-top:0.5rem;font-size:0.75rem" readonly onclick="this.select()">${payload}</textarea>`;
     });
 }
 
 // Clear old ratings when pairs change (version key)
-const PAIRS_VERSION = 'v4';  // bump this when re-randomizing
+const PAIRS_VERSION = 'v5';  // bump this when re-randomizing
 const savedVersion = localStorage.getItem('tlc_ab_version');
 if (savedVersion !== PAIRS_VERSION) {
     localStorage.removeItem('tlc_ab_ratings');
