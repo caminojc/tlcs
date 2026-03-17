@@ -943,7 +943,11 @@ int32_t tlcs_compute_perceptual_filter(const float *speech, int32_t frame_size,
     for (int32_t m = 1; m <= perc_order; m++)
         r[m] *= expf(-0.5f * (float)(m * m) * bw * bw);
 
-    r[0] *= (1.0f + 1e-3f);  /* SMPL_PERC_REG = 1e-3 */
+    /* Stronger regularization to prevent near-singular Levinson.
+     * The perceptual autocorrelation can have very different dynamic
+     * range than speech autocorrelation; 1e-3 was insufficient and
+     * produced unstable coefficients on some frames. */
+    r[0] *= (1.0f + 5e-2f);
 
     if (r[0] <= 0.0f)
         return -1;
@@ -952,7 +956,20 @@ int32_t tlcs_compute_perceptual_filter(const float *speech, int32_t frame_size,
     float pred_gain = tlcs_levinson(r, perc_order, b_perc, NULL);
     (void)pred_gain;
 
-    /* Verify stability */
+    /* Bandwidth expansion: move FIR zeros inside the unit circle.
+     * Without this, A_perc zeros can sit on/near the unit circle and
+     * create sharp spectral nulls that interact destructively with
+     * the synthesis poles of 1/A(z), causing filter blowup. */
+    {
+        float gamma_perc = 0.92f;
+        float gi = gamma_perc;
+        for (int32_t k = 1; k <= perc_order; k++) {
+            b_perc[k] *= gi;
+            gi *= gamma_perc;
+        }
+    }
+
+    /* Verify stability: check coefficient energy and NaN */
     float energy = 0.0f;
     for (int32_t k = 1; k <= perc_order; k++)
         energy += b_perc[k] * b_perc[k];
@@ -982,5 +999,27 @@ void tlcs_perceptual_impulse_response(const float *a_q, int32_t order,
         int32_t kmax = (n < perc_order) ? n : perc_order;
         for (int32_t k = 1; k <= kmax; k++)
             h_w[n] += b_perc[k] * h[n - k];
+    }
+
+    /* Step 3: Energy normalization.
+     * A_perc(z)/A(z) can have wildly different energy than the standard
+     * A(z/γ1)/[A(z)·A(z/γ2)] weighting filter. If h_w energy is too
+     * low, codebook gains blow up; too high, and the codec clips.
+     * Normalize h_w to match the energy of h (pure synthesis impulse
+     * response), preserving spectral shape but stabilizing gains. */
+    {
+        float e_h = 0.0f, e_hw = 0.0f;
+        for (int32_t n = 0; n < subfr_size; n++) {
+            e_h  += h[n] * h[n];
+            e_hw += h_w[n] * h_w[n];
+        }
+        if (e_hw > 1e-10f && e_h > 1e-10f) {
+            float scale = sqrtf(e_h / e_hw);
+            /* Clamp scale to prevent extreme corrections */
+            if (scale > 4.0f)  scale = 4.0f;
+            if (scale < 0.25f) scale = 0.25f;
+            for (int32_t n = 0; n < subfr_size; n++)
+                h_w[n] *= scale;
+        }
     }
 }
